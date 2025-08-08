@@ -125,3 +125,6 @@ build/
 
 # Test coverage
 coverage/
+
+# Local development files
+settings.local.json

@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 import { MessagePipelineModule } from './modules/message-pipeline/message-pipeline.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BedrockModule } from './modules/bedrock/bedrock.module';
+import { EditSessionModule } from './modules/edit-session/edit-session.module';
 import GlobalConfiguration from './core/config/global.configuration';
 import PromptsConfiguration from './core/config/prompts.configuration';
 import { config } from 'dotenv';
@@ -14,6 +15,7 @@ config();
 @Module({
   imports: [
     MessagePipelineModule,
+    EditSessionModule,
     ConfigModule.forRoot({
       isGlobal: true,
       load: [GlobalConfiguration, PromptsConfiguration],
