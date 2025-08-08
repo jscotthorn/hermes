@@ -61,7 +61,8 @@ export class AgentService {
     this.#toolNode = new ToolNode(this.#tools);
 
     // Initialize checkpointer
-    const dbPath = process.env.CHECKPOINT_DB || 'sqlite://tmp/langgraph.db';
+    // Use /tmp which is writable in containers
+    const dbPath = process.env.CHECKPOINT_DB || '/tmp/langgraph.db';
     this.#checkpointer = SqliteSaver.fromConnString(dbPath);
 
     // Build the graph

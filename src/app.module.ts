@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { MessagePipelineModule } from './modules/message-pipeline/message-pipeline.module';
+// import { MessagePipelineModule } from './modules/message-pipeline/message-pipeline.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BedrockModule } from './modules/bedrock/bedrock.module';
 import { EditSessionModule } from './modules/edit-session/edit-session.module';
@@ -14,7 +14,7 @@ config();
 
 @Module({
   imports: [
-    MessagePipelineModule,
+    // MessagePipelineModule, // Disabled - LangGraph issues
     EditSessionModule,
     ConfigModule.forRoot({
       isGlobal: true,

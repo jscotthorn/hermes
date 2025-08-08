@@ -7,8 +7,8 @@ WORKDIR /app
 COPY package*.json ./
 COPY tsconfig*.json ./
 
-# Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Install ALL dependencies (including dev) for building
+RUN npm ci && npm cache clean --force
 
 # Copy source code
 COPY src/ ./src/
@@ -36,6 +36,9 @@ COPY --from=builder /app/dist ./dist
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs
 RUN adduser -S hermes -u 1001 -G nodejs
+
+# Create necessary directories for the application
+RUN mkdir -p /app/data /app/logs
 
 # Change ownership of the app directory
 RUN chown -R hermes:nodejs /app
