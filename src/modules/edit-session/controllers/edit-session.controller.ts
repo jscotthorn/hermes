@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { EditSessionService } from '../services/edit-session.service';
 
-@Controller('hermes/api/sessions')
+@Controller('api/sessions')
 export class EditSessionController {
   constructor(private readonly sessionService: EditSessionService) {}
 
