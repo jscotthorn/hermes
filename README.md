@@ -1,6 +1,6 @@
 # Hermes - NestJS Backend Service
 
-Hermes is the backend service for the Webordinary live-editing platform, handling email processing, session management, and Fargate container orchestration.
+Hermes is the backend service for the Webordinary live-editing platform, handling message processing, session management, and Fargate container orchestration.
 
 ## Deployment
 
@@ -35,10 +35,18 @@ npm run start
 
 ## Architecture Overview
 
-### Core Modules
+### Current Modules
 - **EditSessionModule**: Manages DynamoDB sessions and Fargate scaling
-- **MessagePipelineModule**: Processes emails and executes user instructions
+- **MessagePipelineModule**: Processes messages and executes user instructions
 - **BedrockModule**: Integrates with AWS Bedrock for AI model inference
+- **ClaudeExecutorModule**: Direct Claude Code integration
+
+### Upcoming Modules (Sprint 4-5)
+- **SQSManagerModule**: Per-container queue management (one queue set per user+project)
+- **ThreadExtractorModule**: Extract thread IDs from emails/SMS/chat
+- **SessionResumptionModule**: Wake sleeping containers
+- **CircuitBreakerModule**: Resilient error handling
+- **@nestjs-packages/sqs**: Decorator-based SQS message handling
 
 ### Session Management
 Hermes provides REST API endpoints for edit session lifecycle:
@@ -49,12 +57,21 @@ Hermes provides REST API endpoints for edit session lifecycle:
 - `GET /api/sessions/client/{clientId}` - List client sessions
 
 ### AWS Integration Services
-- **SQS**: Email message processing from SES
+
+#### Current
+- **SQS**: Message processing from SES
 - **DynamoDB**: Session state storage with TTL
 - **ECS**: Direct control of edit container scaling
 - **CloudWatch**: Metrics publishing for auto-scaling
-- **Bedrock**: AI model inference for email classification
+- **Bedrock**: AI model inference
 - **SES**: Email response sending
+
+#### New Architecture (Sprint 4-5)
+- **SQS Queues**: Per-container input/output/DLQ queues (one set per user+project)
+- **DynamoDB**: Container queue URL storage and TTL management
+- **Lambda**: Session routing for preview URLs
+- **CloudWatch Alarms**: DLQ monitoring and alerts
+- **NestJS Integration**: Clean decorator-based message handling
 
 ## Configuration
 
@@ -115,18 +132,28 @@ npm run format
 
 - **Unit Tests**: Service logic and API endpoints
 - **Integration Tests**: AWS service interactions  
-- **E2E Tests**: Complete email�session�preview flow
+- **E2E Tests**: Complete message→session→preview flow
 - **Health Checks**: Container and service availability
 
 ## Session Lifecycle Flow
 
-1. **Email Ingestion**: SES � SQS � Hermes processes message
+### Current Architecture
+1. **Message Ingestion**: SES → SQS → Hermes processes message
 2. **Session Creation**: Creates DynamoDB session with unique ID
-3. **Container Scaling**: ECS API scales edit service from 0�1
+3. **Container Scaling**: ECS API scales edit service from 0→1
 4. **Preview URL**: Returns `edit.domain.com/session/{sessionId}`
 5. **Activity Monitoring**: Updates session TTL on each request
-6. **Auto-Shutdown**: Scales containers to 0 after 5min idle
+6. **Auto-Shutdown**: Scales containers to 0 after idle timeout
 7. **Session Cleanup**: DynamoDB TTL removes expired sessions
+
+### New Architecture (Sprint 4-5)
+1. **Message Ingestion**: Email/SMS/Chat → Extract thread ID
+2. **Container Mapping**: Map user+project to single container
+3. **Queue Creation**: Create one queue set per container (not per session)
+4. **Container Discovery**: Find or start container for user+project
+5. **Message Routing**: Send to container's single input queue
+6. **Interrupt Handling**: Any new message interrupts current work
+7. **Response Flow**: Container output queue → Hermes → User
 
 ## Production Site Integration
 
@@ -152,8 +179,13 @@ npm run format
 
 ### Production Scaling
 - **Always-On**: ~$25-30/month for Hermes + edit service costs
-- **Auto-Scale**: Variable based on email volume and session activity
+- **Auto-Scale**: Variable based on message volume and session activity
 - **Multi-Client**: Shared ALB and infrastructure reduce per-client costs
+
+### New Architecture Benefits
+- **SQS Costs**: <$1/month for thousands of messages
+- **Container Efficiency**: Better utilization with session sharing
+- **Reduced Complexity**: Lower operational overhead
 
 ## Monitoring & Observability
 
@@ -171,10 +203,25 @@ npm run format
 - **Container Security**: Non-root user, minimal attack surface
 - **API Authentication**: Ready for JWT/OAuth integration
 
-## Future Enhancements
+## Upcoming Changes (Sprint 4-5)
 
-- **Auto-scaling triggers**: Scale based on email volume patterns
-- **Multi-region**: Deploy across regions for global availability  
-- **Circuit breakers**: Resilient handling of AWS service failures
-- **Caching layer**: Redis for frequent session lookups
-- **Batch processing**: Bundle multiple emails for efficiency
+### Sprint 4: SQS Integration
+- Replace HTTP APIs with SQS message passing
+- Implement per-container queue management (one queue set per user+project)
+- Add chat thread ID extraction (email/SMS/chat)
+- Support multiple sessions per container via single queue
+- Integrate @nestjs-packages/sqs for clean decorator-based handling
+
+### Sprint 5: Production Hardening
+- Add DLQ processing and error recovery
+- Implement circuit breakers for resilience
+- Create comprehensive monitoring dashboards
+- Deploy with canary rollout strategy
+
+## Future Enhancements (Post Sprint 5)
+
+- **Multi-region**: Global availability
+- **Caching layer**: Redis for session lookups
+- **Batch processing**: Bundle messages for efficiency
+- **WebSocket support**: Real-time updates
+- **GraphQL API**: Flexible client queries
