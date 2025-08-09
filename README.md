@@ -115,18 +115,33 @@ npm run format
 
 - **Unit Tests**: Service logic and API endpoints
 - **Integration Tests**: AWS service interactions  
-- **E2E Tests**: Complete email’session’preview flow
+- **E2E Tests**: Complete emailï¿½sessionï¿½preview flow
 - **Health Checks**: Container and service availability
 
 ## Session Lifecycle Flow
 
-1. **Email Ingestion**: SES ’ SQS ’ Hermes processes message
+1. **Email Ingestion**: SES ï¿½ SQS ï¿½ Hermes processes message
 2. **Session Creation**: Creates DynamoDB session with unique ID
-3. **Container Scaling**: ECS API scales edit service from 0’1
+3. **Container Scaling**: ECS API scales edit service from 0ï¿½1
 4. **Preview URL**: Returns `edit.domain.com/session/{sessionId}`
 5. **Activity Monitoring**: Updates session TTL on each request
 6. **Auto-Shutdown**: Scales containers to 0 after 5min idle
 7. **Session Cleanup**: DynamoDB TTL removes expired sessions
+
+## Production Site Integration
+
+### Amelia Stamps Client
+- **Production**: https://amelia.webordinary.com (CloudFront â†’ S3)
+- **Editor**: https://edit.amelia.webordinary.com (ALB â†’ Fargate)
+- **GitHub Repo**: ameliastamps/amelia-astro
+- **Build Pipeline**: GitHub webhook â†’ Lambda â†’ S3 â†’ CloudFront invalidation
+
+### Deployment Flow
+1. **Edit Session**: User makes changes via Claude Code in Fargate
+2. **Git Commit**: Changes committed to feature branch
+3. **PR/Merge**: User approves changes to main branch
+4. **Auto-Deploy**: GitHub webhook triggers Lambda build
+5. **Live Update**: CloudFront serves updated static site
 
 ## Cost Optimization
 
