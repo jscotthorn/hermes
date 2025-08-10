@@ -135,25 +135,29 @@ export class QueueManagerService {
     const containerId = `${clientId}-${projectId}-${userId}`;
 
     try {
-      // Check DynamoDB for existing queues
+      // Check DynamoDB for existing queues using Query since we have a composite key
       const result = await this.dynamodb.send(
-        new GetItemCommand({
+        new QueryCommand({
           TableName: this.tableName,
-          Key: {
-            containerId: { S: containerId },
+          KeyConditionExpression: 'containerId = :containerId',
+          ExpressionAttributeValues: {
+            ':containerId': { S: containerId },
           },
+          ScanIndexForward: false, // Get most recent first
+          Limit: 1, // Only need the most recent record
         }),
       );
 
-      if (!result.Item) {
+      if (!result.Items || result.Items.length === 0) {
         return null;
       }
 
+      const item = result.Items[0];
       return {
         containerId,
-        inputUrl: result.Item.inputQueueUrl.S!,
-        outputUrl: result.Item.outputQueueUrl.S!,
-        dlqUrl: result.Item.dlqQueueUrl.S!,
+        inputUrl: item.inputQueueUrl.S!,
+        outputUrl: item.outputQueueUrl.S!,
+        dlqUrl: item.dlqQueueUrl.S!,
       };
     } catch (error) {
       this.logger.error(`Failed to get queues for container ${containerId}:`, error);
@@ -344,23 +348,26 @@ export class QueueManagerService {
    * Deletes queue tracking from DynamoDB
    */
   private async deleteQueueTracking(containerId: string): Promise<void> {
-    // First get the item to retrieve the createdAt sort key
-    const getResult = await this.dynamodb.send(
-      new GetItemCommand({
+    // First query to get the item with the complete key
+    const queryResult = await this.dynamodb.send(
+      new QueryCommand({
         TableName: this.tableName,
-        Key: {
-          containerId: { S: containerId },
+        KeyConditionExpression: 'containerId = :containerId',
+        ExpressionAttributeValues: {
+          ':containerId': { S: containerId },
         },
+        Limit: 1,
       }),
     );
 
-    if (getResult.Item) {
+    if (queryResult.Items && queryResult.Items.length > 0) {
+      const item = queryResult.Items[0];
       await this.dynamodb.send(
         new DeleteItemCommand({
           TableName: this.tableName,
           Key: {
             containerId: { S: containerId },
-            createdAt: getResult.Item.createdAt,
+            createdAt: { N: item.createdAt.N! },
           },
         }),
       );
@@ -374,11 +381,31 @@ export class QueueManagerService {
     containerId: string,
     status: 'active' | 'idle' | 'terminating',
   ): Promise<void> {
+    // First get the record to obtain the complete key
+    const queryResult = await this.dynamodb.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: 'containerId = :containerId',
+        ExpressionAttributeValues: {
+          ':containerId': { S: containerId },
+        },
+        Limit: 1,
+      }),
+    );
+
+    if (!queryResult.Items || queryResult.Items.length === 0) {
+      this.logger.warn(`No record found to update status for container: ${containerId}`);
+      return;
+    }
+
+    const item = queryResult.Items[0];
+    
     await this.dynamodb.send(
       new UpdateItemCommand({
         TableName: this.tableName,
         Key: {
           containerId: { S: containerId },
+          createdAt: { N: item.createdAt.N! },
         },
         UpdateExpression: 'SET #status = :status, lastActivity = :now',
         ExpressionAttributeNames: {

@@ -1,6 +1,18 @@
 # Hermes - NestJS Backend Service
 
-Hermes is the backend service for the Webordinary live-editing platform, handling message processing, session management, and Fargate container orchestration.
+## 🚀 Multi-Session SQS Architecture Implementation
+
+Hermes is the orchestration service for Webordinary's multi-session SQS architecture, handling email/SMS/chat processing, thread management, and container lifecycle orchestration.
+
+### 🎯 Sprint 4 Status: **85% COMPLETE** ✅
+
+#### ✅ Implemented Features
+- **SQS Message Processing**: Queue-based communication with edit containers
+- **Thread Extraction**: Cross-channel continuity (email ↔ SMS ↔ chat)
+- **Session Mapping**: Normalized thread IDs with DynamoDB persistence
+- **Container Management**: One container per user+project with multi-session support
+- **Queue Lifecycle**: Dynamic creation, monitoring, and cleanup
+- **Interrupt Handling**: Automatic command interruption for concurrent sessions
 
 ## Deployment
 
