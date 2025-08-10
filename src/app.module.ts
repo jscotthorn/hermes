@@ -9,6 +9,7 @@ import GlobalConfiguration from './core/config/global.configuration';
 import PromptsConfiguration from './core/config/prompts.configuration';
 import { config } from 'dotenv';
 import { SqsModule } from '@ssut/nestjs-sqs';
+import { MonitoringModule } from './modules/monitoring/monitoring.module';
 
 config();
 
@@ -16,6 +17,7 @@ config();
   imports: [
     EmailProcessorModule,
     EditSessionModule,
+    MonitoringModule,
     ConfigModule.forRoot({
       isGlobal: true,
       load: [GlobalConfiguration, PromptsConfiguration],
