@@ -1,0 +1,19 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": "../",
+  "testEnvironment": "node",
+  "testRegex": "test/load/.*\\.spec\\.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "collectCoverageFrom": [
+    "src/**/*.(t|j)s",
+    "!src/main.ts"
+  ],
+  "coverageDirectory": "../coverage/load",
+  "testTimeout": 180000,
+  "maxWorkers": 1,
+  "verbose": true,
+  "bail": false,
+  "setupFilesAfterEnv": ["<rootDir>/test/setup-integration.ts"]
+}
