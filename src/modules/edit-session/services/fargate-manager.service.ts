@@ -5,6 +5,7 @@ import {
   StopTaskCommand,
   DescribeTasksCommand,
   UpdateServiceCommand,
+  ListTasksCommand,
 } from '@aws-sdk/client-ecs';
 import { EC2Client, DescribeNetworkInterfacesCommand } from '@aws-sdk/client-ec2';
 
@@ -13,6 +14,7 @@ interface StartTaskParams {
   clientId: string;
   userId: string;
   threadId: string;
+  repoUrl?: string;
 }
 
 interface TaskResult {
@@ -27,11 +29,14 @@ export class FargateManagerService {
   private readonly ec2Client: EC2Client;
   private readonly clusterName = 'webordinary-edit-cluster';
   private readonly serviceName = 'webordinary-edit-service';
-  private readonly taskDefinition = 'webordinary-edit-task';
+  private readonly taskDefinition = 'FargateStackEditTaskDef7F513F8D:5';
   private readonly subnets = [
-    'subnet-0dd1b1e8ebcbb0e23',
-    'subnet-0e87b3f11c9e67abc',
+    'subnet-10edb63b',
+    'subnet-74913229',
+    'subnet-448c5c3c',
+    'subnet-e916e4a3',
   ]; // Default VPC subnets
+  private readonly securityGroups = ['sg-005bfe79fea3c5d1a']; // Edit service security group
 
   constructor() {
     this.ecsClient = new ECSClient({ region: 'us-west-2' });
@@ -41,22 +46,66 @@ export class FargateManagerService {
   async startTask(params: StartTaskParams): Promise<TaskResult> {
     this.logger.log(`Starting Fargate task for session ${params.sessionId}`);
 
-    // First, scale up the service if needed
-    await this.scaleService(1);
+    // Use RunTask to start a new task with environment overrides
+    const runTaskCommand = new RunTaskCommand({
+      cluster: this.clusterName,
+      taskDefinition: this.taskDefinition,
+      launchType: 'FARGATE',
+      networkConfiguration: {
+        awsvpcConfiguration: {
+          subnets: this.subnets,
+          assignPublicIp: 'ENABLED',
+          securityGroups: this.securityGroups,
+        },
+      },
+      overrides: {
+        containerOverrides: [
+          {
+            name: 'claude-code-astro',
+            environment: [
+              { name: 'CLIENT_ID', value: params.clientId || 'amelia' },
+              { name: 'USER_ID', value: params.userId || 'email-user' },
+              { name: 'THREAD_ID', value: params.sessionId },
+              { name: 'SESSION_ID', value: params.sessionId },
+              { name: 'REPO_URL', value: params.repoUrl || 'https://github.com/ameliastamps/amelia-astro.git' },
+            ],
+          },
+        ],
+      },
+    });
 
-    // Wait for task to be running
-    const taskArn = await this.waitForRunningTask();
-    
-    // Get container IP
-    const containerIp = await this.getTaskIp(taskArn);
+    try {
+      const runTaskResponse = await this.ecsClient.send(runTaskCommand);
+      
+      if (!runTaskResponse.tasks || runTaskResponse.tasks.length === 0) {
+        throw new Error('Failed to start task');
+      }
 
-    // Wait for container to be healthy
-    await this.waitForHealthy(containerIp);
+      const taskArn = runTaskResponse.tasks[0].taskArn!;
+      this.logger.log(`Started task ${taskArn}`);
 
-    return {
-      taskArn,
-      containerIp,
-    };
+      // Wait for task to be running
+      await this.waitForTaskRunning(taskArn);
+      
+      // Get container IP
+      const containerIp = await this.getTaskIp(taskArn);
+
+      // Wait for container to be healthy
+      await this.waitForHealthy(containerIp);
+
+      return {
+        taskArn,
+        containerIp,
+      };
+    } catch (error) {
+      this.logger.error('Failed to start task', error);
+      // Fall back to scaling service approach
+      await this.scaleService(1);
+      const taskArn = await this.waitForRunningTask();
+      const containerIp = await this.getTaskIp(taskArn);
+      await this.waitForHealthy(containerIp);
+      return { taskArn, containerIp };
+    }
   }
 
   async stopTask(taskArn: string): Promise<void> {
@@ -92,22 +141,60 @@ export class FargateManagerService {
     );
   }
 
-  private async waitForRunningTask(maxAttempts = 30): Promise<string> {
-    for (let i = 0; i < maxAttempts; i++) {
-      const tasks = await this.ecsClient.send(
+  private async waitForTaskRunning(taskArn: string): Promise<void> {
+    const maxAttempts = 30;
+    
+    for (let i = 1; i <= maxAttempts; i++) {
+      const describeResponse = await this.ecsClient.send(
         new DescribeTasksCommand({
           cluster: this.clusterName,
-          tasks: [], // Get all tasks in cluster
+          tasks: [taskArn],
         }),
       );
 
-      const runningTask = tasks.tasks?.find(
-        (task) => task.lastStatus === 'RUNNING',
+      if (describeResponse.tasks && describeResponse.tasks.length > 0) {
+        const task = describeResponse.tasks[0];
+        if (task.lastStatus === 'RUNNING') {
+          this.logger.log(`Task ${taskArn} is running`);
+          return;
+        }
+      }
+
+      this.logger.debug(`Waiting for task to start... (${i}/${maxAttempts})`);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
+    throw new Error('Timeout waiting for task to start');
+  }
+
+  private async waitForRunningTask(maxAttempts = 30): Promise<string> {
+    for (let i = 0; i < maxAttempts; i++) {
+      // First list all tasks for the service
+      const listTasksResponse = await this.ecsClient.send(
+        new ListTasksCommand({
+          cluster: this.clusterName,
+          serviceName: this.serviceName,
+          desiredStatus: 'RUNNING',
+        }),
       );
 
-      if (runningTask) {
-        this.logger.log(`Task ${runningTask.taskArn} is running`);
-        return runningTask.taskArn!;
+      if (listTasksResponse.taskArns && listTasksResponse.taskArns.length > 0) {
+        // Now describe those tasks to get their status
+        const tasks = await this.ecsClient.send(
+          new DescribeTasksCommand({
+            cluster: this.clusterName,
+            tasks: listTasksResponse.taskArns,
+          }),
+        );
+
+        const runningTask = tasks.tasks?.find(
+          (task) => task.lastStatus === 'RUNNING',
+        );
+
+        if (runningTask) {
+          this.logger.log(`Task ${runningTask.taskArn} is running`);
+          return runningTask.taskArn!;
+        }
       }
 
       this.logger.debug(`Waiting for task to start... (${i + 1}/${maxAttempts})`);

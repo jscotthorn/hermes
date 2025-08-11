@@ -8,10 +8,14 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { EditSessionService } from '../services/edit-session.service';
+import { SessionResumptionService } from '../services/session-resumption.service';
 
 @Controller('api/sessions')
 export class EditSessionController {
-  constructor(private readonly sessionService: EditSessionService) {}
+  constructor(
+    private readonly sessionService: EditSessionService,
+    private readonly sessionResumptionService: SessionResumptionService,
+  ) {}
 
   @Post('activate')
   async activateSession(
@@ -86,5 +90,41 @@ export class EditSessionController {
       previewUrl: session.previewUrl,
       lastActivity: new Date(session.lastActivity).toISOString(),
     }));
+  }
+
+  @Post('resume-preview')
+  async resumePreview(
+    @Body() body: { chatThreadId: string; clientId: string },
+  ) {
+    try {
+      const sessionInfo = await this.sessionResumptionService.resumeSessionForPreview(
+        body.chatThreadId,
+        body.clientId,
+      );
+
+      if (!sessionInfo) {
+        throw new HttpException(
+          `Session for thread ${body.chatThreadId} not found`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      return {
+        sessionId: sessionInfo.sessionId,
+        containerId: sessionInfo.containerId,
+        containerIp: sessionInfo.containerIp,
+        status: sessionInfo.status,
+        taskArn: sessionInfo.taskArn,
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      
+      throw new HttpException(
+        `Failed to resume session: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 }

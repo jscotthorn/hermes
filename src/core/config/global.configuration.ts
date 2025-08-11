@@ -1,13 +1,13 @@
 export default () => ({
   aws: {
-    account: process.env.AWS_ACCOUNT_ID ?? '',
+    account: process.env.AWS_ACCOUNT_ID ?? '942734823970',
     bedrockRegion: 'us-west-2',
     accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
-    sqsRegion: 'us-east-2',
-    sesRegion: process.env.AWS_SES_REGION ?? 'us-east-2',
-    emailConsumer: 'buddy-email-consumer',
-    emailQueue: 'webordinary-buddy-incoming-email',
+    sqsRegion: process.env.AWS_SQS_REGION ?? 'us-west-2',
+    sesRegion: process.env.AWS_SES_REGION ?? 'us-west-2',
+    emailConsumer: 'hermes-email-consumer',
+    emailQueue: process.env.EMAIL_QUEUE_NAME ?? 'webordinary-email-queue',
   },
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY,

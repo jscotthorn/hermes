@@ -26,6 +26,19 @@ config();
     SqsModule.registerAsync({
       useFactory(configService: ConfigService) {
         const config = configService.get('aws');
+        
+        // In development, use AWS profile from environment
+        const sqsOptions: any = {
+          region: config.sqsRegion,
+        };
+        
+        // For local development, we need to ensure credentials are loaded
+        if (process.env.NODE_ENV === 'development' && process.env.AWS_PROFILE) {
+          // The nestjs-sqs module uses AWS SDK v2, which should pick up
+          // credentials from the environment automatically
+          console.log(`SQS Module: Using AWS profile '${process.env.AWS_PROFILE}' for development`);
+        }
+        
         return {
           consumers: [
             {
@@ -33,7 +46,7 @@ config();
               name: config.emailConsumer,
               // The actual SQS queue URL
               queueUrl: `https://sqs.${config.sqsRegion}.amazonaws.com/${config.account}/${config.emailQueue}`,
-              region: config.sqsRegion,
+              ...sqsOptions,
             },
           ],
           /*

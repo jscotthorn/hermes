@@ -19,6 +19,7 @@ export interface EditSession {
   status: 'initializing' | 'active' | 'draining' | 'expired';
   fargateTaskArn?: string;
   containerIp?: string;
+  containerId?: string; // Added for session resumption
   lastActivity: number;
   ttl: number;
   editBranch: string;
@@ -83,7 +84,7 @@ export class EditSessionService {
       session.fargateTaskArn = taskArn;
       session.containerIp = containerIp;
       session.status = 'active';
-      session.previewUrl = `https://edit.ameliastamps.com/session/${sessionId}`;
+      session.previewUrl = `https://edit.amelia.webordinary.com/session/${sessionId}`;
 
       await this.updateSession(session);
 

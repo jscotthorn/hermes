@@ -1,16 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SQSEvent, SQSRecord } from 'aws-lambda';
-import { SES, SQS } from 'aws-sdk';
+import { SES, SQS, DynamoDB } from 'aws-sdk';
 import * as simpleParser from 'mailparser';
 const EmailReplyParser = require('email-reply-parser');
 import { ClaudeExecutorService } from '../claude-executor/claude-executor.service';
 import { EditSessionService } from '../edit-session/services/edit-session.service';
+import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs';
 
 @Injectable()
 export class EmailProcessorService {
   private readonly logger = new Logger(EmailProcessorService.name);
   private readonly ses = new SES({ region: 'us-west-2' });
   private readonly sqs = new SQS({ region: 'us-west-2' });
+  private readonly dynamodb = new DynamoDB({ region: 'us-west-2' });
 
   constructor(
     private readonly claudeExecutor: ClaudeExecutorService,
@@ -20,12 +22,16 @@ export class EmailProcessorService {
   /**
    * Process an SQS message containing an email
    */
-  async processEmail(record: SQSRecord): Promise<void> {
+  @SqsMessageHandler('hermes-email-consumer', false)
+  async processEmail(message: any): Promise<void> {
     try {
       this.logger.log('Processing email from SQS');
       
+      // The message can be either a raw message or an SQSRecord
+      const body = message.Body || message.body || message;
+      
       // Parse the email
-      const email = await this.parseEmail(record.body);
+      const email = await this.parseEmail(body);
       
       // Extract instruction from email body
       const instruction = this.extractInstruction(email);
@@ -56,6 +62,7 @@ export class EmailProcessorService {
   /**
    * Process multiple SQS messages
    */
+  @SqsConsumerEventHandler('hermes-email-consumer', 'batch')
   async processSQSEvent(event: SQSEvent): Promise<void> {
     this.logger.log(`Processing ${event.Records.length} SQS messages`);
     
@@ -80,9 +87,23 @@ export class EmailProcessorService {
   /**
    * Parse raw email content
    */
-  private async parseEmail(body: string): Promise<any> {
-    const messageBody = JSON.parse(body);
-    const rawEmail = messageBody.content || messageBody.Message;
+  private async parseEmail(body: any): Promise<any> {
+    let rawEmail: string;
+    
+    // Handle different message formats
+    if (typeof body === 'string') {
+      try {
+        const messageBody = JSON.parse(body);
+        rawEmail = messageBody.content || messageBody.Message || body;
+      } catch {
+        // If parsing fails, assume it's the raw email content
+        rawEmail = body;
+      }
+    } else if (typeof body === 'object') {
+      rawEmail = body.content || body.Message || JSON.stringify(body);
+    } else {
+      rawEmail = String(body);
+    }
     
     const parsed = await simpleParser.simpleParser(rawEmail);
     
@@ -123,20 +144,26 @@ export class EmailProcessorService {
    * Extract instruction from email body
    */
   private extractInstruction(email: any): string {
-    // Use email-reply-parser to get just the new content
-    const replyText = new EmailReplyParser().parse(
-      email.textBody || email.htmlBody || '',
-    );
-    
-    // Get the visible text (removes quoted replies)
-    const fragments = replyText.getFragments();
-    const visibleText = fragments
-      .filter((f: any) => !f.isQuoted() && !f.isSignature())
-      .map((f: any) => f.getContent())
-      .join('\n')
-      .trim();
-    
-    return visibleText || email.textBody || email.htmlBody || '';
+    try {
+      // Use email-reply-parser to get just the new content
+      const replyText = EmailReplyParser.parse(
+        email.textBody || email.htmlBody || '',
+      );
+      
+      // Get the visible text (removes quoted replies)
+      const fragments = replyText.getFragments();
+      const visibleText = fragments
+        .filter((f: any) => !f.isQuoted() && !f.isSignature())
+        .map((f: any) => f.getContent())
+        .join('\n')
+        .trim();
+      
+      return visibleText || email.textBody || email.htmlBody || '';
+    } catch (error) {
+      // If parsing fails, just return the raw text
+      this.logger.warn('Failed to parse email reply, using raw text', error);
+      return email.textBody || email.htmlBody || '';
+    }
   }
 
   /**
@@ -144,7 +171,16 @@ export class EmailProcessorService {
    */
   private async getOrCreateSession(email: any): Promise<any> {
     // Extract client ID from email address
-    const clientId = email.from.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
+    let clientId = 'amelia'; // Default to amelia for MVP
+    try {
+      const emailUser = email.from.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
+      if (emailUser && emailUser.length > 0) {
+        clientId = emailUser.substring(0, 20); // Limit length and ensure not empty
+      }
+    } catch (error) {
+      this.logger.warn('Failed to extract client ID from email, using default', error);
+    }
+    
     const userId = 'email-user'; // Default user for email sessions
     
     // Try to find existing session by thread ID
@@ -166,6 +202,10 @@ export class EmailProcessorService {
       userId,
       instruction
     );
+    
+    // Create thread mapping for session router
+    // This is needed for the Lambda session router to find the container
+    await this.createThreadMapping(session.threadId, session.sessionId, clientId);
     
     return session;
   }
@@ -232,5 +272,34 @@ export class EmailProcessorService {
     
     await this.ses.sendEmail(params).promise();
     this.logger.log(`Email response sent to ${email.from}`);
+  }
+
+  /**
+   * Create thread mapping for session router
+   */
+  private async createThreadMapping(
+    threadId: string,
+    sessionId: string,
+    clientId: string,
+  ): Promise<void> {
+    try {
+      const containerId = `${clientId}-email-user`; // Container ID format
+      
+      await this.dynamodb.putItem({
+        TableName: 'webordinary-thread-mappings',
+        Item: {
+          threadId: { S: threadId },
+          sessionId: { S: sessionId },
+          containerId: { S: containerId },
+          status: { S: 'active' },
+          createdAt: { N: Date.now().toString() },
+        },
+      }).promise();
+      
+      this.logger.log(`Created thread mapping for ${threadId} -> ${sessionId}`);
+    } catch (error) {
+      this.logger.error('Failed to create thread mapping', error);
+      // Don't fail the whole process if mapping creation fails
+    }
   }
 }

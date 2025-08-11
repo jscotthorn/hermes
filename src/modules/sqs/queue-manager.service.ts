@@ -17,6 +17,7 @@ import {
   QueryCommand,
   UpdateItemCommand,
 } from '@aws-sdk/client-dynamodb';
+import { getAwsClientConfig } from '../../core/config/aws-credentials.provider';
 
 export interface ContainerQueues {
   containerId: string;
@@ -53,8 +54,13 @@ export class QueueManagerService {
     this.region = process.env.AWS_REGION || 'us-west-2';
     this.tableName = process.env.QUEUE_TRACKING_TABLE || 'webordinary-queue-tracking';
     
-    this.sqs = new SQSClient({ region: this.region });
-    this.dynamodb = new DynamoDBClient({ region: this.region });
+    const awsConfig = getAwsClientConfig(this.region);
+    this.sqs = new SQSClient(awsConfig);
+    this.dynamodb = new DynamoDBClient(awsConfig);
+    
+    if (process.env.NODE_ENV === 'development') {
+      this.logger.log('Queue Manager initialized for local development');
+    }
   }
 
   /**
