@@ -1,0 +1,578 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import {
+  SQSClient,
+  ReceiveMessageCommand,
+  DeleteMessageCommand,
+  GetQueueAttributesCommand,
+} from '@aws-sdk/client-sqs';
+import {
+  S3Client,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+} from '@aws-sdk/client-s3';
+import {
+  CloudWatchLogsClient,
+  FilterLogEventsCommand,
+} from '@aws-sdk/client-cloudwatch-logs';
+import {
+  DynamoDBClient,
+  GetItemCommand,
+  QueryCommand,
+  ScanCommand,
+} from '@aws-sdk/client-dynamodb';
+import {
+  ECSClient,
+  DescribeTasksCommand,
+  ListTasksCommand,
+} from '@aws-sdk/client-ecs';
+import { v4 as uuidv4 } from 'uuid';
+
+import { QueueManagerService } from '../../src/modules/sqs/queue-manager.service';
+import { SqsMessageService } from '../../src/modules/sqs/sqs-message.service';
+import { CommandExecutorService } from '../../src/modules/sqs/command-executor.service';
+import { ContainerManagerService } from '../../src/modules/container/container-manager.service';
+import { ThreadExtractorService } from '../../src/modules/message-processor/thread-extractor.service';
+import { EditSessionService } from '../../src/modules/edit-session/services/edit-session.service';
+import { QueueLifecycleService } from '../../src/modules/sqs/queue-lifecycle.service';
+
+// S3 bucket configuration
+const S3_BUCKET = process.env.S3_BUCKET_NAME || 'edit.amelia.webordinary.com';
+const S3_REGION = process.env.AWS_REGION || 'us-west-2';
+
+// Test client for Hermes operations with S3 support
+class HermesTestClient {
+  private s3: S3Client;
+  private cloudwatch: CloudWatchLogsClient;
+
+  constructor(
+    private containerManager: ContainerManagerService,
+    private commandExecutor: CommandExecutorService,
+    private threadExtractor: ThreadExtractorService,
+    private queueManager: QueueManagerService,
+  ) {
+    this.s3 = new S3Client({ region: S3_REGION });
+    this.cloudwatch = new CloudWatchLogsClient({ region: S3_REGION });
+  }
+
+  async createSession(params: {
+    clientId: string;
+    projectId: string;
+    userId: string;
+    chatThreadId: string;
+    instruction?: string;
+  }) {
+    // Generate a consistent thread ID from chatThreadId
+    const threadId = params.chatThreadId.substring(0, 8);
+
+    // Get or create session
+    const session = await this.threadExtractor.getOrCreateSession(
+      params.clientId,
+      params.projectId,
+      params.userId,
+      threadId,
+      'chat',
+    );
+
+    // Create queues for container
+    const queues = await this.queueManager.createContainerQueues(
+      params.clientId,
+      params.projectId,
+      params.userId,
+    );
+
+    // Ensure container is running
+    const container = await this.containerManager.ensureContainerRunning(
+      params.clientId,
+      params.projectId,
+      params.userId,
+      queues,
+    );
+
+    return {
+      sessionId: session.sessionId,
+      containerId: container.containerId,
+      inputQueueUrl: container.inputQueueUrl,
+      outputQueueUrl: container.outputQueueUrl,
+      threadId,
+      gitBranch: session.gitBranch,
+    };
+  }
+
+  async sendCommand(params: {
+    sessionId: string;
+    instruction: string;
+  }) {
+    // Get session info
+    const sessionParts = params.sessionId.split('-');
+    const clientId = sessionParts[0];
+    const projectId = sessionParts[1];
+    const userId = sessionParts[2];
+    const threadId = sessionParts.slice(3).join('-');
+    const containerId = `${clientId}-${projectId}-${userId}`;
+
+    // Get queues for container
+    const queues = await this.queueManager.getContainerQueues(
+      clientId,
+      projectId,
+      userId,
+    );
+
+    if (!queues) {
+      throw new Error(`No queues found for container ${containerId}`);
+    }
+
+    // Execute command
+    const result = await this.commandExecutor.executeCommand(
+      {
+        containerId,
+        inputUrl: queues.inputUrl,
+        outputUrl: queues.outputUrl,
+        dlqUrl: queues.dlqUrl || '',
+      },
+      {
+        sessionId: params.sessionId,
+        type: 'edit',
+        instruction: params.instruction,
+        userEmail: 'test@example.com',
+        chatThreadId: threadId,
+        context: {
+          branch: `thread-${threadId}`,
+          clientId,
+          projectId,
+          userId,
+        },
+      },
+      30000, // 30 second timeout
+    );
+
+    return {
+      commandId: result.commandId,
+      success: result.success,
+      summary: result.summary,
+      interrupted: result.interrupted,
+    };
+  }
+
+  async closeSession(sessionId: string) {
+    await this.containerManager.releaseSession(sessionId);
+  }
+
+  // S3 verification methods
+  async waitForS3Deployment(sessionId: string, timeout = 30000): Promise<void> {
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < timeout) {
+      try {
+        const response = await this.s3.send(new HeadObjectCommand({
+          Bucket: S3_BUCKET,
+          Key: `${sessionId}/index.html`,
+        }));
+        
+        if (response) {
+          return; // Deployment successful
+        }
+      } catch (error) {
+        // Object doesn't exist yet, keep waiting
+      }
+      
+      await sleep(2000);
+    }
+    
+    throw new Error(`S3 deployment timeout for session ${sessionId}`);
+  }
+
+  async verifyS3Content(sessionId: string, searchText: string): Promise<boolean> {
+    try {
+      const objects = await this.s3.send(new ListObjectsV2Command({
+        Bucket: S3_BUCKET,
+        Prefix: `${sessionId}/`,
+        MaxKeys: 100,
+      }));
+
+      return objects.Contents?.some(obj => 
+        obj.Key?.includes(searchText)
+      ) || false;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async getCloudWatchLogs(containerId: string, minutes = 5): Promise<string[]> {
+    const endTime = Date.now();
+    const startTime = endTime - (minutes * 60 * 1000);
+    
+    try {
+      const response = await this.cloudwatch.send(new FilterLogEventsCommand({
+        logGroupName: `/ecs/webordinary/edit`,
+        startTime,
+        endTime,
+        filterPattern: containerId,
+      }));
+
+      return response.events?.map(e => e.message || '') || [];
+    } catch (error) {
+      return [];
+    }
+  }
+}
+
+describe('Multi-Session S3 Architecture Tests', () => {
+  let module: TestingModule;
+  let hermes: HermesTestClient;
+  let sqs: SQSClient;
+  let s3: S3Client;
+  let dynamodb: DynamoDBClient;
+  let ecs: ECSClient;
+  let containerManager: ContainerManagerService;
+  let queueManager: QueueManagerService;
+
+  beforeAll(async () => {
+    // Initialize AWS clients
+    sqs = new SQSClient({ region: S3_REGION });
+    s3 = new S3Client({ region: S3_REGION });
+    dynamodb = new DynamoDBClient({ region: S3_REGION });
+    ecs = new ECSClient({ region: S3_REGION });
+
+    // Create test module
+    module = await Test.createTestingModule({
+      imports: [EventEmitterModule.forRoot()],
+      providers: [
+        QueueManagerService,
+        SqsMessageService,
+        CommandExecutorService,
+        ContainerManagerService,
+        ThreadExtractorService,
+        QueueLifecycleService,
+        {
+          provide: EditSessionService,
+          useValue: {
+            createSession: jest.fn().mockImplementation((sessionId, params) => ({
+              sessionId,
+              gitBranch: `thread-${params.chatThreadId}`,
+              clientId: params.clientId,
+              projectId: params.projectId,
+              userId: params.userId,
+            })),
+            getSession: jest.fn(),
+            updateSession: jest.fn(),
+          },
+        },
+      ],
+    }).compile();
+
+    containerManager = module.get<ContainerManagerService>(ContainerManagerService);
+    queueManager = module.get<QueueManagerService>(QueueManagerService);
+
+    hermes = new HermesTestClient(
+      containerManager,
+      module.get<CommandExecutorService>(CommandExecutorService),
+      module.get<ThreadExtractorService>(ThreadExtractorService),
+      queueManager,
+    );
+  });
+
+  afterAll(async () => {
+    await module?.close();
+  });
+
+  describe('S3 Deployment', () => {
+    it('should deploy to S3 after processing message', async () => {
+      const testId = uuidv4().substring(0, 8);
+      
+      // Create session
+      const session = await hermes.createSession({
+        clientId: `test-${testId}`,
+        projectId: 's3-deploy',
+        userId: 'user1@example.com',
+        chatThreadId: 'thread-s3',
+        instruction: 'Create a test page',
+      });
+
+      // Send command to build and deploy
+      const result = await hermes.sendCommand({
+        sessionId: session.sessionId,
+        instruction: 'Add a welcome message to the home page',
+      });
+
+      expect(result.success).toBe(true);
+
+      // Wait for S3 deployment
+      await hermes.waitForS3Deployment(session.sessionId);
+
+      // Verify S3 content exists
+      const hasContent = await hermes.verifyS3Content(session.sessionId, 'index.html');
+      expect(hasContent).toBe(true);
+
+      // Cleanup
+      await hermes.closeSession(session.sessionId);
+    }, 60000);
+
+    it('should maintain separate S3 deployments per session', async () => {
+      const testId = uuidv4().substring(0, 8);
+      
+      // Create two sessions
+      const session1 = await hermes.createSession({
+        clientId: `test-${testId}`,
+        projectId: 's3-multi',
+        userId: 'user1@example.com',
+        chatThreadId: 'thread-1',
+      });
+
+      const session2 = await hermes.createSession({
+        clientId: `test-${testId}`,
+        projectId: 's3-multi',
+        userId: 'user1@example.com',
+        chatThreadId: 'thread-2',
+      });
+
+      // Deploy different content to each session
+      await Promise.all([
+        hermes.sendCommand({
+          sessionId: session1.sessionId,
+          instruction: 'Create page1.html',
+        }),
+        hermes.sendCommand({
+          sessionId: session2.sessionId,
+          instruction: 'Create page2.html',
+        }),
+      ]);
+
+      // Wait for deployments
+      await Promise.all([
+        hermes.waitForS3Deployment(session1.sessionId),
+        hermes.waitForS3Deployment(session2.sessionId),
+      ]);
+
+      // Verify each session has its own content
+      const session1HasPage1 = await hermes.verifyS3Content(session1.sessionId, 'page1');
+      const session2HasPage2 = await hermes.verifyS3Content(session2.sessionId, 'page2');
+
+      expect(session1HasPage1).toBe(true);
+      expect(session2HasPage2).toBe(true);
+
+      // Cleanup
+      await hermes.closeSession(session1.sessionId);
+      await hermes.closeSession(session2.sessionId);
+    }, 90000);
+  });
+
+  describe('Container Health via CloudWatch', () => {
+    it('should monitor container health through CloudWatch logs', async () => {
+      const testId = uuidv4().substring(0, 8);
+      
+      const session = await hermes.createSession({
+        clientId: `test-${testId}`,
+        projectId: 'health-check',
+        userId: 'user1@example.com',
+        chatThreadId: 'thread-health',
+      });
+
+      // Send a command to generate activity
+      await hermes.sendCommand({
+        sessionId: session.sessionId,
+        instruction: 'Create a health check file',
+      });
+
+      // Get CloudWatch logs
+      const logs = await hermes.getCloudWatchLogs(session.containerId);
+      
+      // Should have some log entries
+      expect(logs.length).toBeGreaterThan(0);
+      
+      // Should contain processing messages
+      const hasProcessingLogs = logs.some(log => 
+        log.includes('processing') || 
+        log.includes('received') ||
+        log.includes('command')
+      );
+      expect(hasProcessingLogs).toBe(true);
+
+      // Cleanup
+      await hermes.closeSession(session.sessionId);
+    }, 60000);
+  });
+
+  describe('Container Sharing with S3', () => {
+    it('should share container but maintain separate S3 paths', async () => {
+      const testId = uuidv4().substring(0, 8);
+      
+      // Create two sessions on same container
+      const session1 = await hermes.createSession({
+        clientId: `test-${testId}`,
+        projectId: 'shared-s3',
+        userId: 'user1@example.com',
+        chatThreadId: 'thread-a',
+      });
+
+      const session2 = await hermes.createSession({
+        clientId: `test-${testId}`,
+        projectId: 'shared-s3',
+        userId: 'user1@example.com',
+        chatThreadId: 'thread-b',
+      });
+
+      // Should share container
+      expect(session1.containerId).toBe(session2.containerId);
+
+      // Deploy to both sessions
+      await Promise.all([
+        hermes.sendCommand({
+          sessionId: session1.sessionId,
+          instruction: 'Create session1-specific.html',
+        }),
+        hermes.sendCommand({
+          sessionId: session2.sessionId,
+          instruction: 'Create session2-specific.html',
+        }),
+      ]);
+
+      // Wait for deployments
+      await Promise.all([
+        hermes.waitForS3Deployment(session1.sessionId),
+        hermes.waitForS3Deployment(session2.sessionId),
+      ]);
+
+      // Verify S3 isolation
+      const session1HasOwnFile = await hermes.verifyS3Content(session1.sessionId, 'session1-specific');
+      const session2HasOwnFile = await hermes.verifyS3Content(session2.sessionId, 'session2-specific');
+      
+      expect(session1HasOwnFile).toBe(true);
+      expect(session2HasOwnFile).toBe(true);
+
+      // Cleanup
+      await hermes.closeSession(session1.sessionId);
+      await hermes.closeSession(session2.sessionId);
+    }, 90000);
+  });
+
+  describe('Queue Management', () => {
+    it('should create one queue set per container', async () => {
+      const testId = uuidv4().substring(0, 8);
+      
+      // Create session (which creates container and queues)
+      const session = await hermes.createSession({
+        clientId: `test-${testId}`,
+        projectId: 'project',
+        userId: 'user',
+        chatThreadId: 'thread-123',
+      });
+
+      const containerId = `test-${testId}-project-user`;
+
+      // Verify queue names follow pattern
+      expect(session.inputQueueUrl).toContain(`webordinary-input-${containerId}`);
+      expect(session.outputQueueUrl).toContain(`webordinary-output-${containerId}`);
+
+      // Verify queues exist in AWS
+      const inputExists = await queueExists(sqs, session.inputQueueUrl);
+      const outputExists = await queueExists(sqs, session.outputQueueUrl);
+      
+      expect(inputExists).toBe(true);
+      expect(outputExists).toBe(true);
+
+      // Cleanup
+      await hermes.closeSession(session.sessionId);
+      await queueManager.deleteContainerQueues(`test-${testId}`, 'project', 'user');
+    }, 60000);
+
+    it('should persist queue URLs in DynamoDB', async () => {
+      const testId = uuidv4().substring(0, 8);
+      
+      // Create session
+      const session = await hermes.createSession({
+        clientId: `test-${testId}`,
+        projectId: 'project',
+        userId: 'user',
+        chatThreadId: 'thread-456',
+      });
+
+      // Query DynamoDB for queue tracking
+      const queueRecord = await dynamodb.send(
+        new QueryCommand({
+          TableName: process.env.QUEUE_TRACKING_TABLE || 'webordinary-queue-tracking',
+          KeyConditionExpression: 'containerId = :containerId',
+          ExpressionAttributeValues: {
+            ':containerId': { S: session.containerId },
+          },
+          Limit: 1,
+        }),
+      );
+
+      expect(queueRecord.Items).toBeDefined();
+      expect(queueRecord.Items?.length).toBeGreaterThan(0);
+      
+      if (queueRecord.Items?.[0]) {
+        expect(queueRecord.Items[0].inputQueueUrl?.S).toBe(session.inputQueueUrl);
+        expect(queueRecord.Items[0].outputQueueUrl?.S).toBe(session.outputQueueUrl);
+      }
+
+      // Cleanup
+      await hermes.closeSession(session.sessionId);
+    }, 60000);
+  });
+
+  describe('Message Processing with S3', () => {
+    it('should process messages and deploy to S3 in order', async () => {
+      const testId = uuidv4().substring(0, 8);
+      
+      const session = await hermes.createSession({
+        clientId: `test-${testId}`,
+        projectId: 'ordered-s3',
+        userId: 'user1@example.com',
+        chatThreadId: 'thread-1',
+      });
+
+      // Send multiple commands
+      const commands: any[] = [];
+      for (let i = 1; i <= 3; i++) {
+        const result = await hermes.sendCommand({
+          sessionId: session.sessionId,
+          instruction: `Create file${i}.txt`,
+        });
+        commands.push(result);
+        await sleep(1000);
+      }
+
+      // Verify all succeeded
+      commands.forEach((cmd) => {
+        expect(cmd.success).toBe(true);
+      });
+
+      // Wait for final S3 deployment
+      await hermes.waitForS3Deployment(session.sessionId);
+
+      // Verify all files exist in S3
+      const hasFile1 = await hermes.verifyS3Content(session.sessionId, 'file1');
+      const hasFile2 = await hermes.verifyS3Content(session.sessionId, 'file2');
+      const hasFile3 = await hermes.verifyS3Content(session.sessionId, 'file3');
+
+      expect(hasFile1 || hasFile2 || hasFile3).toBe(true);
+
+      // Cleanup
+      await hermes.closeSession(session.sessionId);
+    }, 90000);
+  });
+});
+
+// Helper functions
+async function queueExists(sqs: SQSClient, queueUrl: string): Promise<boolean> {
+  try {
+    await sqs.send(
+      new GetQueueAttributesCommand({
+        QueueUrl: queueUrl,
+        AttributeNames: ['CreatedTimestamp'],
+      }),
+    );
+    return true;
+  } catch (error) {
+    if (error.name === 'QueueDoesNotExist') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

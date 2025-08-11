@@ -16,11 +16,11 @@ process.env.ECS_CLUSTER_ARN = process.env.ECS_CLUSTER_ARN || 'arn:aws:ecs:us-wes
 // Increase Jest timeout for integration tests
 jest.setTimeout(60000);
 
-// Mock AWS credentials if not present (for local testing)
-if (!process.env.AWS_ACCESS_KEY_ID) {
-  process.env.AWS_ACCESS_KEY_ID = 'test-access-key';
-  process.env.AWS_SECRET_ACCESS_KEY = 'test-secret-key';
-  process.env.AWS_SESSION_TOKEN = 'test-session-token';
+// Don't set mock credentials - use AWS_PROFILE instead
+// This prevents credential conflicts when AWS_PROFILE is set
+if (!process.env.AWS_PROFILE && !process.env.AWS_ACCESS_KEY_ID) {
+  console.warn('WARNING: No AWS credentials found. Tests may fail.');
+  console.warn('Set AWS_PROFILE=personal or provide AWS credentials.');
 }
 
 // Global test utilities
