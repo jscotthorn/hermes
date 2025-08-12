@@ -15,6 +15,8 @@ If you see "exec format error" in logs, it's an architecture mismatch.
 See README.md for full architecture details.
 
 ## 🔧 Quick Commands
+
+### Production (ECS)
 ```bash
 # Scale service
 AWS_PROFILE=personal aws ecs update-service \
@@ -29,6 +31,18 @@ AWS_PROFILE=personal aws logs tail /ecs/hermes --since 10m
 AWS_PROFILE=personal aws sqs get-queue-attributes \
   --queue-url https://sqs.us-west-2.amazonaws.com/942734823970/webordinary-email-queue \
   --attribute-names ApproximateNumberOfMessages
+```
+
+### Local Development
+```bash
+# Start with Docker Compose (from project root)
+docker compose -f docker-compose.local.yml up hermes
+
+# Health check
+curl http://localhost:3000/hermes/health
+
+# View logs
+docker compose -f docker-compose.local.yml logs -f hermes
 ```
 
 ## 🧪 Testing

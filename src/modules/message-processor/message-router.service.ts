@@ -9,11 +9,14 @@ import {
   GetItemCommand,
   QueryCommand,
 } from '@aws-sdk/client-dynamodb';
+import { v4 as uuidv4 } from 'uuid';
+import type { ClaimRequestMessage, WorkMessage } from '../../types/queue-messages';
 
 export interface ProjectConfig {
   projectId: string;
   userId: string;
   email: string;
+  repoUrl: string;
   defaultInstruction?: string;
 }
 
@@ -39,6 +42,7 @@ export class MessageRouterService {
       projectId: 'ameliastamps',
       userId: 'scott',
       email: 'escottster@gmail.com',
+      repoUrl: 'https://github.com/ameliastamps/amelia-astro.git',
       defaultInstruction: 'Help with Amelia Stamps website'
     }],
   ]);
@@ -51,9 +55,9 @@ export class MessageRouterService {
   }
 
   /**
-   * Determines project and user from message context
+   * Determines project, user, and repo URL from message context
    */
-  async identifyProjectUser(message: any): Promise<{ projectId: string; userId: string }> {
+  async identifyProjectUser(message: any): Promise<{ projectId: string; userId: string; repoUrl?: string }> {
     this.logger.debug('Identifying project and user from message');
     
     // Priority 1: Check if we have a sessionId to look up
@@ -61,9 +65,12 @@ export class MessageRouterService {
       try {
         const session = await this.getSessionFromDynamoDB(message.sessionId);
         if (session) {
+          // Try to get repo URL from config
+          const config = this.getProjectConfigById(session.projectId);
           return {
             projectId: session.projectId,
             userId: session.userId,
+            repoUrl: config?.repoUrl,
           };
         }
       } catch (error) {
@@ -76,9 +83,12 @@ export class MessageRouterService {
       try {
         const thread = await this.getThreadFromDynamoDB(message.threadId);
         if (thread) {
+          // Try to get repo URL from config
+          const config = this.getProjectConfigById(thread.projectId);
           return {
             projectId: thread.projectId,
             userId: thread.userId,
+            repoUrl: config?.repoUrl,
           };
         }
       } catch (error) {
@@ -95,6 +105,7 @@ export class MessageRouterService {
         return {
           projectId: config.projectId,
           userId: config.userId,
+          repoUrl: config.repoUrl,
         };
       }
     }
@@ -104,6 +115,7 @@ export class MessageRouterService {
     return {
       projectId: 'default',
       userId: 'unknown',
+      repoUrl: undefined,
     };
   }
 
@@ -111,7 +123,7 @@ export class MessageRouterService {
    * Routes message to appropriate queue
    */
   async routeMessage(message: any): Promise<RoutingDecision> {
-    const { projectId, userId } = await this.identifyProjectUser(message);
+    const { projectId, userId, repoUrl } = await this.identifyProjectUser(message);
     
     this.logger.log(`Routing message for project=${projectId}, user=${userId}`);
     
@@ -119,13 +131,27 @@ export class MessageRouterService {
     const inputQueueUrl = this.buildQueueUrl('input', projectId, userId);
     const outputQueueUrl = this.buildQueueUrl('output', projectId, userId);
     
-    // Send to project-specific input queue
-    await this.sendToQueue(inputQueueUrl, {
-      ...message,
+    // Create standardized work message
+    const workMessage: WorkMessage = {
+      type: 'work',
+      sessionId: message.sessionId || `${projectId}-${userId}-${Date.now()}`,
       projectId,
       userId,
-      routedAt: new Date().toISOString(),
-    });
+      repoUrl: repoUrl || '',
+      instruction: message.instruction || '',
+      timestamp: new Date().toISOString(),
+      source: message.source || 'email',
+      from: message.from,
+      subject: message.subject,
+      body: message.body,
+      threadId: message.threadId,
+      chatThreadId: message.chatThreadId,
+      commandId: message.commandId || uuidv4(),
+      context: message.context,
+    };
+    
+    // Send to project-specific input queue
+    await this.sendToQueue(inputQueueUrl, workMessage);
     
     // Check if container is assigned to this project+user
     const needsUnclaimed = await this.checkNeedsUnclaimed(projectId, userId);
@@ -189,12 +215,16 @@ export class MessageRouterService {
   private async sendToUnclaimedQueue(projectId: string, userId: string): Promise<void> {
     const unclaimedQueueUrl = `https://sqs.${this.region}.amazonaws.com/${this.accountId}/webordinary-unclaimed`;
     
-    await this.sendToQueue(unclaimedQueueUrl, {
+    const claimRequest: ClaimRequestMessage = {
       type: 'claim_request',
+      sessionId: `claim-${projectId}-${userId}-${Date.now()}`,
       projectId,
       userId,
       timestamp: new Date().toISOString(),
-    });
+      source: 'hermes',
+    };
+    
+    await this.sendToQueue(unclaimedQueueUrl, claimRequest);
   }
 
   /**
@@ -287,5 +317,18 @@ export class MessageRouterService {
     this.logger.log(`Updated project config for ${email}: ${config.projectId}/${config.userId}`);
     
     // TODO: Store in DynamoDB for persistence
+  }
+
+  /**
+   * Gets project config by project ID
+   */
+  private getProjectConfigById(projectId: string): ProjectConfig | undefined {
+    // Look through all configs to find matching project ID
+    for (const config of this.projectConfigs.values()) {
+      if (config.projectId === projectId) {
+        return config;
+      }
+    }
+    return undefined;
   }
 }

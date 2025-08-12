@@ -3,9 +3,7 @@ import { SQSEvent, SQSRecord } from 'aws-lambda';
 import { SES, SQS, DynamoDB } from 'aws-sdk';
 import * as simpleParser from 'mailparser';
 const EmailReplyParser = require('email-reply-parser');
-import { SqsExecutorService } from '../claude-executor/sqs-executor.service';
 import { MessageRouterService } from '../message-processor/message-router.service';
-import { EditSessionService } from '../edit-session/services/edit-session.service';
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs';
 
 @Injectable()
@@ -16,8 +14,6 @@ export class EmailProcessorService {
   private readonly dynamodb = new DynamoDB({ region: 'us-west-2' });
 
   constructor(
-    private readonly sqsExecutor: SqsExecutorService,
-    private readonly sessionService: EditSessionService,
     private readonly messageRouter: MessageRouterService,
   ) {}
 
@@ -38,24 +34,40 @@ export class EmailProcessorService {
       // Extract instruction from email body
       const instruction = this.extractInstruction(email);
       
-      // Get or create session for this user/thread
-      const session = await this.getOrCreateSession(email);
+      // Identify project and user, then route message
+      const { projectId, userId, repoUrl } = await this.messageRouter.identifyProjectUser({
+        userEmail: email.from,
+        threadId: email.threadId,
+        from: email.from,
+      });
       
-      // Update session activity to keep it alive
-      await this.sessionService.updateSessionActivity(session.sessionId);
+      // Generate session and thread IDs
+      const sessionId = this.generateSessionId(projectId, userId, email.threadId);
+      const chatThreadId = email.threadId || `thread-${sessionId}`;
       
-      // Forward instruction to Claude Code in container via SQS
-      const result = await this.sqsExecutor.executeInstruction(
-        session.sessionId,
+      // Route the message to appropriate queues
+      const routing = await this.messageRouter.routeMessage({
+        sessionId,
+        projectId,
+        userId,
+        from: email.from,
+        subject: email.subject,
+        body: email.textBody || email.htmlBody,
         instruction,
-        email.from,
-        email.threadId,
-      );
+        threadId: email.threadId,
+        chatThreadId,
+        repoUrl,
+        timestamp: new Date().toISOString(),
+        source: 'email',
+      });
       
-      // Send email response with results
-      await this.sendEmailResponse(email, result, session.sessionId);
+      // Create thread mapping for future reference
+      await this.createThreadMapping(chatThreadId, sessionId, projectId);
       
-      this.logger.log(`Successfully processed email for session ${session.sessionId}`);
+      // Send basic acknowledgment email
+      await this.sendAcknowledgmentEmail(email, projectId, routing.needsUnclaimed);
+      
+      this.logger.log(`Successfully routed email for project ${projectId}, user ${userId}`);
     } catch (error) {
       this.logger.error('Failed to process email', error);
       throw error;
@@ -170,74 +182,41 @@ export class EmailProcessorService {
   }
 
   /**
-   * Get or create session for email sender
+   * Generate a session ID for the email
    */
-  private async getOrCreateSession(email: any): Promise<any> {
-    // Use the message router to identify project and user
-    const { projectId, userId } = await this.messageRouter.identifyProjectUser({
-      userEmail: email.from,
-      threadId: email.threadId,
-      from: email.from,
-    });
-    
-    // Use projectId as clientId for now (will refactor terminology later)
-    const clientId = projectId;
-    
-    // Try to find existing session by thread ID
-    if (email.threadId) {
-      const existingSessions = await this.sessionService.getActiveSessions(clientId);
-      const threadSession = existingSessions.find(
-        s => s.threadId === email.threadId && s.status === 'active'
-      );
-      
-      if (threadSession) {
-        return threadSession;
-      }
+  private generateSessionId(projectId: string, userId: string, threadId?: string): string {
+    if (threadId) {
+      // Use thread ID as basis for session ID for continuity
+      return `${projectId}-${userId}-${threadId}`;
     }
-    
-    // Create new session with instruction from email
-    const instruction = `Email from ${email.from}: ${email.subject || 'No subject'}`;
-    const session = await this.sessionService.createSession(
-      clientId,
-      userId,
-      instruction
-    );
-    
-    // Create thread mapping for session router
-    // This is needed for the Lambda session router to find the container
-    await this.createThreadMapping(session.threadId, session.sessionId, clientId);
-    
-    return session;
+    // Generate new session ID
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 7);
+    return `${projectId}-${userId}-${timestamp}-${random}`;
   }
 
   /**
-   * Send email response with results
+   * Send acknowledgment email for received request
    */
-  private async sendEmailResponse(
+  private async sendAcknowledgmentEmail(
     email: any,
-    result: any,
-    sessionId: string,
+    projectId: string,
+    needsUnclaimed: boolean,
   ): Promise<void> {
-    const threadId = email.threadId || `thread-${sessionId}`;
+    const threadId = email.threadId || `thread-${projectId}`;
     
-    let body = result.message || 'Your request has been processed.';
+    let body = 'Your request has been received and queued for processing.\n\n';
     
-    if (result.changes && result.changes.length > 0) {
-      body += '\n\nChanges made:\n';
-      result.changes.forEach((change: any) => {
-        body += `- ${change}\n`;
-      });
+    if (needsUnclaimed) {
+      body += 'A development environment is being prepared for your project.\n';
+      body += 'This may take a minute. You will receive another email once your changes are ready.\n';
+    } else {
+      body += 'Your request is being processed by the development environment.\n';
+      body += 'You will receive another email once your changes are ready.\n';
     }
     
-    if (result.previewUrl) {
-      body += `\n\nPreview your changes: ${result.previewUrl}\n`;
-    }
-    
-    if (result.requiresApproval) {
-      body += '\n\n⚠️ This change requires your approval.\n';
-      body += `Approve: ${process.env.ALB_URL}/approve/${result.approvalToken}\n`;
-      body += `Reject: ${process.env.ALB_URL}/reject/${result.approvalToken}\n`;
-    }
+    body += `\nProject: ${projectId}\n`;
+    body += `\nPreview URL: https://edit.${projectId}.webordinary.com\n`;
     
     const params = {
       Source: process.env.SES_FROM_EMAIL || 'noreply@webordinary.com',
@@ -271,7 +250,7 @@ export class EmailProcessorService {
     };
     
     await this.ses.sendEmail(params).promise();
-    this.logger.log(`Email response sent to ${email.from}`);
+    this.logger.log(`Acknowledgment email sent to ${email.from}`);
   }
 
   /**
