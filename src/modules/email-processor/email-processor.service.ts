@@ -3,7 +3,8 @@ import { SQSEvent, SQSRecord } from 'aws-lambda';
 import { SES, SQS, DynamoDB } from 'aws-sdk';
 import * as simpleParser from 'mailparser';
 const EmailReplyParser = require('email-reply-parser');
-import { ClaudeExecutorService } from '../claude-executor/claude-executor.service';
+import { SqsExecutorService } from '../claude-executor/sqs-executor.service';
+import { MessageRouterService } from '../message-processor/message-router.service';
 import { EditSessionService } from '../edit-session/services/edit-session.service';
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs';
 
@@ -15,8 +16,9 @@ export class EmailProcessorService {
   private readonly dynamodb = new DynamoDB({ region: 'us-west-2' });
 
   constructor(
-    private readonly claudeExecutor: ClaudeExecutorService,
+    private readonly sqsExecutor: SqsExecutorService,
     private readonly sessionService: EditSessionService,
+    private readonly messageRouter: MessageRouterService,
   ) {}
 
   /**
@@ -42,11 +44,12 @@ export class EmailProcessorService {
       // Update session activity to keep it alive
       await this.sessionService.updateSessionActivity(session.sessionId);
       
-      // Forward instruction to Claude Code in container
-      const result = await this.claudeExecutor.executeInstruction(
+      // Forward instruction to Claude Code in container via SQS
+      const result = await this.sqsExecutor.executeInstruction(
         session.sessionId,
         instruction,
         email.from,
+        email.threadId,
       );
       
       // Send email response with results
@@ -170,18 +173,15 @@ export class EmailProcessorService {
    * Get or create session for email sender
    */
   private async getOrCreateSession(email: any): Promise<any> {
-    // Extract client ID from email address
-    let clientId = 'amelia'; // Default to amelia for MVP
-    try {
-      const emailUser = email.from.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
-      if (emailUser && emailUser.length > 0) {
-        clientId = emailUser.substring(0, 20); // Limit length and ensure not empty
-      }
-    } catch (error) {
-      this.logger.warn('Failed to extract client ID from email, using default', error);
-    }
+    // Use the message router to identify project and user
+    const { projectId, userId } = await this.messageRouter.identifyProjectUser({
+      userEmail: email.from,
+      threadId: email.threadId,
+      from: email.from,
+    });
     
-    const userId = 'email-user'; // Default user for email sessions
+    // Use projectId as clientId for now (will refactor terminology later)
+    const clientId = projectId;
     
     // Try to find existing session by thread ID
     if (email.threadId) {

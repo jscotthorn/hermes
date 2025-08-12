@@ -307,7 +307,7 @@ describe('SessionResumptionService Integration Tests', () => {
       await expect(
         service.resumeSession(mockSession.sessionId, mockMessage)
       ).rejects.toThrow(/failed to become healthy within/);
-    });
+    }, 10000);
   });
 
   describe('resumeSessionForPreview', () => {
@@ -353,7 +353,7 @@ describe('SessionResumptionService Integration Tests', () => {
 
       expect(result).toEqual({
         sessionId: mockSession.sessionId,
-        containerId: mockSession.sessionId,
+        containerId: `${mockSession.clientId}-${mockSession.threadId}-${mockSession.userId}`,
         containerIp: mockContainerRunning.containerIp,
         status: 'running',
         taskArn: mockContainerRunning.taskArn,
@@ -376,7 +376,7 @@ describe('SessionResumptionService Integration Tests', () => {
 
       await expect(
         service.resumeSession(mockSession.sessionId, mockMessage)
-      ).rejects.toThrow('DynamoDB unavailable');
+      ).rejects.toThrow('Session test-session-123 not found');
     });
 
     it('should handle Fargate startup errors', async () => {

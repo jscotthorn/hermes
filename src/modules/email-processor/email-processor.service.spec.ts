@@ -1,7 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EmailProcessorService } from './email-processor.service';
-import { ClaudeExecutorService } from '../claude-executor/claude-executor.service';
+import { SqsExecutorService } from '../claude-executor/sqs-executor.service';
 import { EditSessionService } from '../edit-session/services/edit-session.service';
+import { MessageRouterService } from '../message-processor/message-router.service';
 
 // Mock email-reply-parser
 jest.mock('email-reply-parser', () => {
@@ -34,21 +35,31 @@ jest.mock('mailparser', () => ({
 
 describe('EmailProcessorService', () => {
   let service: EmailProcessorService;
-  let claudeExecutor: ClaudeExecutorService;
+  let sqsExecutor: SqsExecutorService;
   let sessionService: EditSessionService;
+  let messageRouter: MessageRouterService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EmailProcessorService,
         {
-          provide: ClaudeExecutorService,
+          provide: SqsExecutorService,
           useValue: {
             executeInstruction: jest.fn().mockResolvedValue({
               success: true,
               message: 'Test completed',
               changes: [],
               previewUrl: 'https://test.com/preview',
+            }),
+          },
+        },
+        {
+          provide: MessageRouterService,
+          useValue: {
+            identifyProjectUser: jest.fn().mockResolvedValue({
+              projectId: 'ameliastamps',
+              userId: 'scott',
             }),
           },
         },
@@ -70,8 +81,9 @@ describe('EmailProcessorService', () => {
     }).compile();
 
     service = module.get<EmailProcessorService>(EmailProcessorService);
-    claudeExecutor = module.get<ClaudeExecutorService>(ClaudeExecutorService);
+    sqsExecutor = module.get<SqsExecutorService>(SqsExecutorService);
     sessionService = module.get<EditSessionService>(EditSessionService);
+    messageRouter = module.get<MessageRouterService>(MessageRouterService);
   });
 
   it('should be defined', () => {
@@ -101,9 +113,10 @@ describe('EmailProcessorService', () => {
 
     await service.processEmail(mockRecord as any);
 
+    expect(messageRouter.identifyProjectUser).toHaveBeenCalled();
     expect(sessionService.createSession).toHaveBeenCalled();
     expect(sessionService.updateSessionActivity).toHaveBeenCalled();
-    expect(claudeExecutor.executeInstruction).toHaveBeenCalled();
+    expect(sqsExecutor.executeInstruction).toHaveBeenCalled();
   });
 
   it('should extract instruction from email', () => {

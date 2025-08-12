@@ -22,9 +22,9 @@ echo "Tag: $TAG"
 echo "Authenticating with ECR..."
 aws ecr get-login-password --region $AWS_REGION --profile personal | docker login --username AWS --password-stdin $REPOSITORY_URI
 
-# Build the Docker image
-echo "Building Docker image..."
-docker build -t $REPOSITORY_NAME:$TAG .
+# Build the Docker image (MUST use platform flag for ECS)
+echo "Building Docker image with platform linux/amd64..."
+docker build --platform linux/amd64 -t $REPOSITORY_NAME:$TAG .
 
 # Tag for ECR
 echo "Tagging image for ECR..."
