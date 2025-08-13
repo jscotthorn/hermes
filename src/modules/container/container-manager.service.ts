@@ -131,8 +131,8 @@ export class ContainerManagerService {
     const containerId = `${clientId}-${projectId}-${userId}`;
 
     try {
-      // Get the GitHub repo URL for this client/project
-      const repoUrl = this.getRepoUrl(clientId, projectId);
+      // Repository URL now comes from messages, not environment
+      // Containers are generic and claim work dynamically
 
       // Run Fargate task with environment variables
       const taskResponse = await this.ecs.send(
@@ -152,17 +152,20 @@ export class ContainerManagerService {
               {
                 name: 'claude-code-astro',
                 environment: [
+                  // Queue URLs for this container
                   { name: 'INPUT_QUEUE_URL', value: queues.inputUrl },
                   { name: 'OUTPUT_QUEUE_URL', value: queues.outputUrl },
                   { name: 'DLQ_URL', value: queues.dlqUrl },
-                  { name: 'CLIENT_ID', value: clientId },
-                  { name: 'PROJECT_ID', value: projectId },
-                  { name: 'USER_ID', value: userId },
+                  
+                  // Container identity and workspace
                   { name: 'CONTAINER_ID', value: containerId },
                   { name: 'WORKSPACE_PATH', value: `/workspace/${clientId}/${projectId}` },
-                  { name: 'REPO_URL', value: repoUrl },
-                  { name: 'AUTO_SHUTDOWN_MINUTES', value: '20' },
                   { name: 'AWS_REGION', value: this.region },
+                  
+                  // REMOVED - these come from messages now:
+                  // CLIENT_ID, PROJECT_ID, USER_ID - from message
+                  // REPO_URL - from message.repoUrl
+                  // AUTO_SHUTDOWN_MINUTES - containers stay warm
                 ],
               },
             ],
@@ -526,16 +529,8 @@ export class ContainerManagerService {
   /**
    * Gets the GitHub repo URL for a client/project
    */
-  private getRepoUrl(clientId: string, projectId: string): string {
-    // This could be looked up from a config table
-    // For now, using a simple mapping
-    const repoMap: Record<string, string> = {
-      'ameliastamps-website': 'https://github.com/ameliastamps/amelia-astro.git',
-      // Add more mappings as needed
-    };
-
-    return repoMap[`${clientId}-${projectId}`] || '';
-  }
+  // REMOVED: getRepoUrl method - repository URL now comes from messages
+  // Containers are generic and receive repo URL in work messages
 
   /**
    * Lists all active containers

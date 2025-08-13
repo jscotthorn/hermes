@@ -63,11 +63,10 @@ export class FargateManagerService {
           {
             name: 'claude-code-astro',
             environment: [
-              { name: 'CLIENT_ID', value: params.clientId || 'amelia' },
-              { name: 'USER_ID', value: params.userId || 'email-user' },
+              // Only pass session/thread tracking - everything else comes from messages
               { name: 'THREAD_ID', value: params.sessionId },
               { name: 'SESSION_ID', value: params.sessionId },
-              { name: 'REPO_URL', value: params.repoUrl || 'https://github.com/ameliastamps/amelia-astro.git' },
+              // REMOVED: CLIENT_ID, USER_ID, REPO_URL - these come from work messages
             ],
           },
         ],

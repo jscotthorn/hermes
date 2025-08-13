@@ -4,7 +4,8 @@ import { ThreadExtractorService } from '../message-processor/thread-extractor.se
 import { QueueManagerService } from '../sqs/queue-manager.service';
 import { SqsMessageService } from '../sqs/sqs-message.service';
 import { ContainerManagerService } from '../container/container-manager.service';
-import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
+import { SESClient, SendEmailCommand, SendRawEmailCommand } from '@aws-sdk/client-ses';
+import { EmailTemplateService } from './email-templates.service';
 
 interface ProcessedEmail {
   from: string;
@@ -32,6 +33,7 @@ export class EmailProcessorService {
     private readonly queueManager: QueueManagerService,
     private readonly messageService: SqsMessageService,
     private readonly containerManager: ContainerManagerService,
+    private readonly emailTemplateService: EmailTemplateService,
   ) {
     this.ses = new SESClient({ region: process.env.AWS_REGION || 'us-west-2' });
   }
@@ -205,53 +207,59 @@ export class EmailProcessorService {
   private async sendResponseEmail(
     to: string,
     originalSubject: string,
-    inReplyTo: string,
+    messageId: string,
     response: any,
   ): Promise<void> {
     const subject = `Re: ${originalSubject}`;
     
-    let body = `Your edit request has been ${response.success ? 'completed successfully' : 'processed with errors'}.\n\n`;
+    // Build content for template
+    let content = `Your edit request has been ${response.success ? 'completed successfully' : 'processed with errors'}.`;
     
     if (response.summary) {
-      body += `Summary:\n${response.summary}\n\n`;
-    }
-    
-    if (response.filesChanged && response.filesChanged.length > 0) {
-      body += `Files changed:\n${response.filesChanged.map(f => `  - ${f}`).join('\n')}\n\n`;
-    }
-    
-    if (response.previewUrl) {
-      body += `Preview your changes: ${response.previewUrl}\n\n`;
-    }
-    
-    if (response.error) {
-      body += `Error details:\n${response.error}\n\n`;
+      content += `\n\n${response.summary}`;
     }
     
     if (response.interrupted) {
-      body += `Note: This task was interrupted by a newer request.\n\n`;
+      content += `\n\nNote: This task was interrupted by a newer request.`;
     }
     
-    body += `---\nWebordinary Edit Service\nThread ID: ${response.sessionId}`;
+    // Extract thread ID from sessionId or generate new one
+    const threadMatch = response.sessionId?.match(/([a-zA-Z0-9]+-[a-zA-Z0-9]+)$/);
+    const threadId = threadMatch ? threadMatch[1] : response.sessionId || this.generateNewThreadId();
+    
+    // Create MJML template
+    const mjmlTemplate = this.emailTemplateService.createResponseTemplate({
+      content,
+      threadId,
+      projectId: response.projectId,
+      previewUrl: response.previewUrl,
+      filesChanged: response.filesChanged,
+      error: response.error,
+      isError: !response.success,
+    });
+    
+    // Render to HTML and text
+    const { html, text } = this.emailTemplateService.renderMjml(mjmlTemplate);
+    
+    // Build MIME message for proper threading
+    const mimeMessage = this.emailTemplateService.buildMimeMessage({
+      from: 'WebOrdinary <noreply@webordinary.com>',
+      to,
+      subject,
+      html,
+      text: `${content}\n\n---\nConversation ID: ${threadId}\nPlease keep this ID in your reply to continue the same session.`,
+      inReplyTo: messageId,
+      references: messageId,
+    });
 
     try {
+      // Use SendRawEmailCommand for MIME messages
       await this.ses.send(
-        new SendEmailCommand({
-          Destination: {
-            ToAddresses: [to],
-          },
-          Message: {
-            Body: {
-              Text: {
-                Data: body,
-              },
-            },
-            Subject: {
-              Data: subject,
-            },
+        new SendRawEmailCommand({
+          RawMessage: {
+            Data: Buffer.from(mimeMessage),
           },
           Source: 'noreply@webordinary.com',
-          ReplyToAddresses: ['support@webordinary.com'],
         }),
       );
       
@@ -259,6 +267,15 @@ export class EmailProcessorService {
     } catch (error) {
       this.logger.error(`Failed to send response email:`, error);
     }
+  }
+  
+  /**
+   * Generate a new thread ID
+   */
+  private generateNewThreadId(): string {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 8);
+    return `${timestamp}-${random}`;
   }
 
   /**
