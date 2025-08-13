@@ -302,7 +302,7 @@ AWS_PROFILE=personal aws sqs receive-message \
 
 **GET** `/hermes/health`
 
-Returns service health status for ALB/ECS monitoring.
+Returns service health status for ECS monitoring.
 
 Response:
 ```json
