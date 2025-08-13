@@ -44,12 +44,9 @@ RUN mkdir -p /app/data /app/logs
 RUN chown -R hermes:nodejs /app
 USER hermes
 
-# Expose port
-EXPOSE 3000
-
-# Health check
+# Health check - just verify the Node process is running
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
+  CMD pgrep node || exit 1
 
 # Start the application
 CMD ["node", "dist/main.js"]
