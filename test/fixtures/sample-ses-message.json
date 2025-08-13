@@ -1,0 +1,10 @@
+{
+  "Type": "Notification",
+  "MessageId": "87a8b094-f26b-4d61-a2a2-a553b23df3d5",
+  "TopicArn": "arn:aws:sns:us-west-2:942734823970:webordinary-email-topic",
+  "Subject": "Amazon SES Email Receipt Notification",
+  "Message": "{\"notificationType\":\"Receipt\",\"mail\":{\"timestamp\":\"2025-01-10T14:50:55.599Z\",\"source\":\"escottster@gmail.com\",\"messageId\":\"87a8b094-f26b-4d61-a2a2-a553b23df3d5\",\"destination\":[\"buddy@webordinary.com\"],\"headersTruncated\":false,\"headers\":[{\"name\":\"Return-Path\",\"value\":\"<escottster@gmail.com>\"},{\"name\":\"From\",\"value\":\"Scott <escottster@gmail.com>\"},{\"name\":\"To\",\"value\":\"buddy@webordinary.com\"},{\"name\":\"Subject\",\"value\":\"Test change\"},{\"name\":\"Message-ID\",\"value\":\"<CAA+Bb=abcdef@mail.gmail.com>\"},{\"name\":\"Date\",\"value\":\"Fri, 10 Jan 2025 14:50:55 +0000\"}],\"commonHeaders\":{\"returnPath\":\"escottster@gmail.com\",\"from\":[\"Scott <escottster@gmail.com>\"],\"date\":\"Fri, 10 Jan 2025 14:50:55 +0000\",\"to\":[\"buddy@webordinary.com\"],\"messageId\":\"<CAA+Bb=abcdef@mail.gmail.com>\",\"subject\":\"Test change\"}},\"receipt\":{\"timestamp\":\"2025-01-10T14:50:55.599Z\",\"processingTimeMillis\":234,\"recipients\":[\"buddy@webordinary.com\"],\"spamVerdict\":{\"status\":\"PASS\"},\"virusVerdict\":{\"status\":\"PASS\"},\"spfVerdict\":{\"status\":\"PASS\"},\"dkimVerdict\":{\"status\":\"PASS\"},\"dmarcVerdict\":{\"status\":\"PASS\"},\"action\":{\"type\":\"Lambda\",\"functionArn\":\"arn:aws:lambda:us-west-2:942734823970:function:email-processor\",\"invocationType\":\"Event\"}},\"content\":\"From: Scott <escottster@gmail.com>\\r\\nTo: buddy@webordinary.com\\r\\nSubject: Test change\\r\\nDate: Fri, 10 Jan 2025 14:50:55 +0000\\r\\nMessage-ID: <CAA+Bb=abcdef@mail.gmail.com>\\r\\nMIME-Version: 1.0\\r\\nContent-Type: text/plain; charset=UTF-8\\r\\n\\r\\nChange \\\"Welcome to My Site\\\" on the home page to \\\"Amelia Stamps Pottery\\\"\\r\\n\"}",
+  "Timestamp": "2025-01-10T14:50:55.599Z",
+  "SignatureVersion": "1",
+  "Signature": "EXAMPLE"
+}

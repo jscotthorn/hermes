@@ -7,7 +7,15 @@ export default () => ({
     sqsRegion: process.env.AWS_SQS_REGION ?? 'us-west-2',
     sesRegion: process.env.AWS_SES_REGION ?? 'us-west-2',
     emailConsumer: 'hermes-email-consumer',
-    emailQueue: process.env.EMAIL_QUEUE_NAME ?? 'webordinary-email-queue',
+    // Support dev queue prefix for local development
+    emailQueue: process.env.EMAIL_QUEUE_NAME ?? (
+      process.env.NODE_ENV === 'development' 
+        ? 'dev-webordinary-email-queue'
+        : 'webordinary-email-queue'
+    ),
+    queuePrefix: process.env.QUEUE_PREFIX ?? (
+      process.env.NODE_ENV === 'development' ? 'dev-' : ''
+    ),
   },
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY,

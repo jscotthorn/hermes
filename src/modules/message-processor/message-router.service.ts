@@ -36,11 +36,13 @@ export class MessageRouterService {
   private readonly accountId: string;
   private readonly region: string;
   
-  // Hardcoded project config for MVP - will move to DynamoDB later
+  // Project configurations - maps email to project+user
+  // This determines which project+user combination a container should claim
+  // TODO: Move to DynamoDB for dynamic configuration
   private readonly projectConfigs: Map<string, ProjectConfig> = new Map([
     ['escottster@gmail.com', {
-      projectId: 'ameliastamps',
-      userId: 'scott',
+      projectId: 'amelia',        // Project identifier (matches S3: edit.amelia.webordinary.com)
+      userId: 'scott',            // User within project
       email: 'escottster@gmail.com',
       repoUrl: 'https://github.com/ameliastamps/amelia-astro.git',
       defaultInstruction: 'Help with Amelia Stamps website'
@@ -56,9 +58,11 @@ export class MessageRouterService {
 
   /**
    * Determines project, user, and repo URL from message context
+   * This identifies WHICH project+user combination should handle this message
+   * Containers will claim project+user combinations, not individual sessions
    */
   async identifyProjectUser(message: any): Promise<{ projectId: string; userId: string; repoUrl?: string }> {
-    this.logger.debug('Identifying project and user from message');
+    this.logger.debug('Identifying project+user for container claiming');
     
     // Priority 1: Check if we have a sessionId to look up
     if (message.sessionId) {
@@ -120,12 +124,15 @@ export class MessageRouterService {
   }
 
   /**
-   * Routes message to appropriate queue
+   * Routes message to appropriate queue based on project+user ownership
+   * Messages go to:
+   * 1. Project+User input queue (for claimed containers)
+   * 2. Unclaimed queue (for warm containers to claim work)
    */
   async routeMessage(message: any): Promise<RoutingDecision> {
     const { projectId, userId, repoUrl } = await this.identifyProjectUser(message);
     
-    this.logger.log(`Routing message for project=${projectId}, user=${userId}`);
+    this.logger.log(`Routing message for project+user: ${projectId}+${userId}`);
     
     // Construct queue URLs
     const inputQueueUrl = this.buildQueueUrl('input', projectId, userId);
@@ -196,9 +203,19 @@ export class MessageRouterService {
       throw new Error('Message validation failed: timestamp is required');
     }
     
-    // Check for unknown fields that indicate test/malformed messages
+    // Check for fields that indicate test/malformed messages from agents
     if ('unknown' in message) {
-      throw new Error('Message validation failed: contains unknown field (likely test message)');
+      throw new Error('Message validation failed: contains unknown field (test message)');
+    }
+    
+    // Reject messages that look like direct test format (not from real emails)
+    if (message.instruction && !message.from) {
+      throw new Error('Message validation failed: instruction without from field (test message)');
+    }
+    
+    // Reject messages with test patterns
+    if (message.userId === 'test-user' || message.projectId === 'test-client') {
+      throw new Error('Message validation failed: test user/project not allowed in production');
     }
     
     // Validate specific message types

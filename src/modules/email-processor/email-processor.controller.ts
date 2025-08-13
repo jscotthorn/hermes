@@ -1,38 +1,15 @@
-import { Controller, Post, Body, Get, Logger } from '@nestjs/common';
-import { EmailProcessorService } from './email-processor.service';
-import { SQSEvent } from 'aws-lambda';
+import { Controller, Get } from '@nestjs/common';
 
+/**
+ * Email processor controller - minimal HTTP endpoints
+ * All email processing happens via SQS consumers, not HTTP
+ */
 @Controller('email')
 export class EmailProcessorController {
-  private readonly logger = new Logger(EmailProcessorController.name);
-
-  constructor(
-    private readonly emailProcessor: EmailProcessorService,
-  ) {}
-
+  // Removed POST /email/process endpoint - using SQS consumers instead
+  
   /**
-   * Process SQS events containing emails
-   * This endpoint is called by AWS Lambda or direct SQS integration
-   */
-  @Post('process')
-  async processSQSEvent(@Body() event: SQSEvent) {
-    this.logger.log(`Received SQS event with ${event.Records?.length || 0} records`);
-    
-    if (!event.Records || event.Records.length === 0) {
-      return { message: 'No records to process' };
-    }
-    
-    await this.emailProcessor.processSQSEvent(event);
-    
-    return {
-      message: `Processed ${event.Records.length} messages`,
-      timestamp: new Date().toISOString(),
-    };
-  }
-
-
-  /**
-   * Health check endpoint
+   * Health check endpoint for monitoring
    */
   @Get('health')
   health() {

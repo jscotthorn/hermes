@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SQSEvent, SQSRecord } from 'aws-lambda';
+import { SQSEvent } from 'aws-lambda';
 import { SES, SQS, DynamoDB } from 'aws-sdk';
 import * as simpleParser from 'mailparser';
-const EmailReplyParser = require('email-reply-parser');
-const mjml2html = require('mjml');
+import * as EmailReplyParser from 'email-reply-parser';
+import mjml2html from 'mjml';
 import { MessageRouterService } from '../message-processor/message-router.service';
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs';
 
@@ -24,16 +24,18 @@ export class EmailProcessorService {
   @SqsMessageHandler('hermes-email-consumer', false)
   async processEmail(message: any): Promise<void> {
     try {
-      this.logger.log('Processing email from SQS');
+      this.logger.log('[EMAIL] Processing new email message from SQS');
       
       // The message can be either a raw message or an SQSRecord
       const body = message.Body || message.body || message;
       
       // Parse the email
       const email = await this.parseEmail(body);
+      this.logger.log(`[EMAIL] Parsed email from: ${email.from}, subject: ${email.subject}`);
       
       // Extract instruction from email body
       const instruction = this.extractInstruction(email);
+      this.logger.debug(`[EMAIL] Extracted instruction: ${instruction?.substring(0, 100)}...`);
       
       // Identify project and user, then route message
       const { projectId, userId, repoUrl } = await this.messageRouter.identifyProjectUser({
@@ -41,10 +43,12 @@ export class EmailProcessorService {
         threadId: email.threadId,
         from: email.from,
       });
+      this.logger.log(`[EMAIL] Identified project+user: ${projectId}+${userId}`);
       
       // Generate session and thread IDs
       const sessionId = this.generateSessionId(projectId, userId, email.threadId);
       const chatThreadId = email.threadId || `thread-${sessionId}`;
+      this.logger.debug(`[EMAIL] Thread ID: ${chatThreadId}, Session ID: ${sessionId}`);
       
       // Route the message to appropriate queues
       const routing = await this.messageRouter.routeMessage({
@@ -68,9 +72,10 @@ export class EmailProcessorService {
       // Send basic acknowledgment email
       await this.sendAcknowledgmentEmail(email, projectId, routing.needsUnclaimed);
       
-      this.logger.log(`Successfully routed email for project ${projectId}, user ${userId}`);
+      this.logger.log(`[EMAIL] ✅ Successfully routed to ${routing.needsUnclaimed ? 'unclaimed queue' : 'project queue'} for ${projectId}+${userId}`);
     } catch (error) {
-      this.logger.error('Failed to process email', error);
+      this.logger.error('[EMAIL] ❌ Failed to process email:', error);
+      this.logger.error(`[EMAIL] Error details: ${error.message}`);
       throw error;
     }
   }
@@ -110,12 +115,44 @@ export class EmailProcessorService {
     if (typeof body === 'string') {
       try {
         const messageBody = JSON.parse(body);
-        rawEmail = messageBody.content || messageBody.Message || body;
+        
+        // Handle SNS notification from SES
+        if (messageBody.Type === 'Notification' && messageBody.Message) {
+          try {
+            const sesMessage = JSON.parse(messageBody.Message);
+            if (sesMessage.content) {
+              rawEmail = sesMessage.content;
+              this.logger.debug('Parsed SES message from SNS notification');
+            } else {
+              rawEmail = messageBody.Message;
+            }
+          } catch {
+            rawEmail = messageBody.Message;
+          }
+        }
+        // Handle direct SES format
+        else if (messageBody.content) {
+          rawEmail = messageBody.content;
+          this.logger.debug('Parsed direct SES message');
+        }
+        // Reject test/malformed messages that were polluting DLQ
+        else if (messageBody.instruction || messageBody.chatThreadId || messageBody.unknown) {
+          this.logger.warn('[EMAIL] Rejecting malformed test message - invalid format');
+          throw new Error('Invalid message format: Test messages not supported. Use real email via SES.');
+        }
+        else {
+          rawEmail = body;
+        }
       } catch {
         // If parsing fails, assume it's the raw email content
         rawEmail = body;
       }
     } else if (typeof body === 'object') {
+      // Reject object format test messages
+      if (body.instruction || body.chatThreadId || body.unknown) {
+        this.logger.warn('[EMAIL] Rejecting malformed test message object');
+        throw new Error('Invalid message format: Test messages not supported');
+      }
       rawEmail = body.content || body.Message || JSON.stringify(body);
     } else {
       rawEmail = String(body);
