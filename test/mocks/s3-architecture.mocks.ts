@@ -17,7 +17,7 @@ import { DynamoDBClient, PutItemCommand, GetItemCommand } from '@aws-sdk/client-
  */
 export const createMockSqsClient = () => {
   const mockSend = jest.fn();
-  
+
   // Default successful responses
   mockSend.mockImplementation((command) => {
     if (command instanceof SendMessageCommand) {
@@ -55,7 +55,7 @@ export const createMockSqsClient = () => {
  */
 export const createMockS3Client = () => {
   const mockSend = jest.fn();
-  
+
   mockSend.mockImplementation((command) => {
     if (command instanceof PutObjectCommand) {
       return Promise.resolve({
@@ -84,7 +84,7 @@ export const createMockS3Client = () => {
  */
 export const createMockDynamoClient = () => {
   const mockSend = jest.fn();
-  
+
   mockSend.mockImplementation((command) => {
     if (command instanceof GetItemCommand) {
       // Mock container ownership check
@@ -128,7 +128,7 @@ export const mockMessages = {
   validEmail: {
     messageId: 'ses-message-id',
     content: `From: escottster@gmail.com
-To: edit@webordinary.com
+To: buddy@webordinary.com
 Subject: Update homepage
 Message-ID: <thread-123@webordinary.com>
 
@@ -231,13 +231,13 @@ export const assertS3Deployment = (s3Client: any, bucketName: string) => {
   const putCalls = s3Client.send.mock.calls.filter(
     (call: any) => call[0] instanceof PutObjectCommand
   );
-  
+
   expect(putCalls.length).toBeGreaterThan(0);
-  
-  const deploymentCall = putCalls.find((call: any) => 
+
+  const deploymentCall = putCalls.find((call: any) =>
     call[0].input.Bucket === bucketName
   );
-  
+
   expect(deploymentCall).toBeDefined();
 };
 
@@ -248,11 +248,11 @@ export const assertMessageSentToQueue = (sqsClient: any, queueUrl: string) => {
   const sendCalls = sqsClient.send.mock.calls.filter(
     (call: any) => call[0] instanceof SendMessageCommand
   );
-  
-  const queueCall = sendCalls.find((call: any) => 
+
+  const queueCall = sendCalls.find((call: any) =>
     call[0].input.QueueUrl === queueUrl
   );
-  
+
   expect(queueCall).toBeDefined();
   return queueCall ? JSON.parse(queueCall[0].input.MessageBody) : null;
 };

@@ -22,7 +22,7 @@ describe('Queue Processing (S3 Architecture)', () => {
     }).compile();
 
     service = module.get<MessageRouterService>(MessageRouterService);
-    
+
     // Get the mocked clients
     mockSqsClient = (service as any).sqs as jest.Mocked<SQSClient>;
     mockDynamoClient = (service as any).dynamodb as jest.Mocked<DynamoDBClient>;
@@ -52,11 +52,11 @@ describe('Queue Processing (S3 Architecture)', () => {
       expect(result.projectId).toBe('amelia');
       expect(result.userId).toBe('scott');
       expect(result.needsUnclaimed).toBe(true); // No active claim
-      
+
       // Verify message sent to unclaimed queue
       const sendCalls = mockSqsClient.send.mock.calls;
       expect(sendCalls.length).toBeGreaterThan(0);
-      
+
       const unclaimedCall = sendCalls.find(call => {
         const command = call[0] as SendMessageCommand;
         return command.input.QueueUrl?.includes('unclaimed');
@@ -90,7 +90,7 @@ describe('Queue Processing (S3 Architecture)', () => {
       });
 
       expect(result.needsUnclaimed).toBe(false); // Active claim exists
-      
+
       // Verify message sent to project+user queue only
       const sendCalls = mockSqsClient.send.mock.calls;
       const projectQueueCall = sendCalls.find(call => {
@@ -98,7 +98,7 @@ describe('Queue Processing (S3 Architecture)', () => {
         return command.input.QueueUrl?.includes('input-amelia-scott');
       });
       expect(projectQueueCall).toBeDefined();
-      
+
       // Should NOT send to unclaimed queue
       const unclaimedCall = sendCalls.find(call => {
         const command = call[0] as SendMessageCommand;
@@ -174,7 +174,7 @@ describe('Queue Processing (S3 Architecture)', () => {
       const userId = 'user@example.com';
 
       const inputQueueUrl = service.getInputQueueUrl(projectId, userId);
-      
+
       // Should sanitize special characters
       expect(inputQueueUrl).not.toContain('@');
       expect(inputQueueUrl).not.toContain('.');
@@ -202,7 +202,7 @@ describe('Queue Processing (S3 Architecture)', () => {
       });
 
       expect(result.needsUnclaimed).toBe(true);
-      
+
       // Verify message sent to unclaimed queue despite DB error
       const sendCalls = mockSqsClient.send.mock.calls;
       const unclaimedCall = sendCalls.find(call => {
@@ -248,7 +248,7 @@ describe('Queue Processing (S3 Architecture)', () => {
     it('should accept valid SES email format', async () => {
       const validMessage = {
         messageId: '123',
-        content: 'From: user@example.com\nTo: edit@webordinary.com\n\nInstruction here',
+        content: 'From: user@example.com\nTo: buddy@webordinary.com\n\nInstruction here',
       };
 
       const result = await service.validateMessageFormat(validMessage);
