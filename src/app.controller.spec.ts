@@ -14,9 +14,16 @@ describe('AppController', () => {
     appController = app.get<AppController>(AppController);
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+  describe('health check', () => {
+    it('should return health status', () => {
+      const health = appController.getHealth();
+      expect(health).toHaveProperty('status', 'healthy');
+      expect(health).toHaveProperty('service', 'hermes-message-router');
+      expect(health).toHaveProperty('timestamp');
+      expect(new Date(health.timestamp).getTime()).toBeLessThanOrEqual(Date.now());
     });
   });
+
+  // Note: Main functionality is SQS-based message processing
+  // HTTP endpoints are minimal (health check only)
 });

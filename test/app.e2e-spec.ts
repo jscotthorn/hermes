@@ -16,10 +16,17 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  it('/hermes/health (GET) - health check endpoint', () => {
     return request(app.getHttpServer())
-      .get('/')
+      .get('/hermes/health')
       .expect(200)
-      .expect('Hello World!');
+      .expect((res) => {
+        expect(res.body).toHaveProperty('status', 'healthy');
+        expect(res.body).toHaveProperty('service', 'hermes-message-router');
+        expect(res.body).toHaveProperty('timestamp');
+      });
   });
+
+  // Note: All other functionality is handled via SQS queues, not HTTP endpoints
+  // See integration tests for queue-based message processing tests
 });
