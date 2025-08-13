@@ -49,9 +49,13 @@ export class MessageRouterService {
     }],
   ]);
 
-  constructor() {
-    this.sqs = new SQSClient({ region: process.env.AWS_REGION || 'us-west-2' });
-    this.dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
+  constructor(
+    sqsClient?: SQSClient,
+    dynamoClient?: DynamoDBClient
+  ) {
+    // Allow injection for testing, but create defaults for production
+    this.sqs = sqsClient || new SQSClient({ region: process.env.AWS_REGION || 'us-west-2' });
+    this.dynamodb = dynamoClient || new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
     this.accountId = process.env.AWS_ACCOUNT_ID || '942734823970';
     this.region = process.env.AWS_REGION || 'us-west-2';
   }
@@ -308,7 +312,8 @@ export class MessageRouterService {
         const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
         
         // Container is active if it checked in within last 5 minutes
-        return lastActivity < fiveMinutesAgo;
+        // Return false (doesn't need unclaimed) if container is active and recent
+        return lastActivity <= fiveMinutesAgo; // true if stale (needs unclaimed)
       }
       
       return true; // No active container found
@@ -393,5 +398,49 @@ export class MessageRouterService {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Helper method to get input queue URL for project+user
+   */
+  getInputQueueUrl(projectId: string, userId: string): string {
+    // Sanitize IDs for queue names
+    const sanitizedProjectId = projectId.replace(/[^a-zA-Z0-9-]/g, '-');
+    const sanitizedUserId = userId.replace(/[^a-zA-Z0-9-]/g, '-');
+    return `https://sqs.${this.region}.amazonaws.com/${this.accountId}/webordinary-input-${sanitizedProjectId}-${sanitizedUserId}`;
+  }
+
+  /**
+   * Helper method to get output queue URL for project+user
+   */
+  getOutputQueueUrl(projectId: string, userId: string): string {
+    // Sanitize IDs for queue names
+    const sanitizedProjectId = projectId.replace(/[^a-zA-Z0-9-]/g, '-');
+    const sanitizedUserId = userId.replace(/[^a-zA-Z0-9-]/g, '-');
+    return `https://sqs.${this.region}.amazonaws.com/${this.accountId}/webordinary-output-${sanitizedProjectId}-${sanitizedUserId}`;
+  }
+
+  /**
+   * Helper method to get unclaimed queue URL
+   */
+  getUnclaimedQueueUrl(): string {
+    return `https://sqs.${this.region}.amazonaws.com/${this.accountId}/webordinary-unclaimed`;
+  }
+
+  /**
+   * Validates message format
+   */
+  async validateMessageFormat(message: any): Promise<boolean> {
+    // Check if it's a test message format (not supported in production)
+    if (message.type === 'test' || message.unknown) {
+      throw new Error('Invalid message format: Test messages not supported');
+    }
+
+    // Check required fields
+    if (!message.messageId || !message.content) {
+      throw new Error('Invalid message format: Missing required fields');
+    }
+
+    return true;
   }
 }

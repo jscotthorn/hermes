@@ -9,19 +9,17 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.createApplicationContext(AppModule);
   
-  // Set global prefix to match ALB routing
-  // ALB forwards /hermes/* and NestJS strips the prefix to match routes
-  app.setGlobalPrefix('hermes');
-  
-  const port = process.env.PORT ?? 3000;
-  // Listen on all interfaces (0.0.0.0) instead of just localhost
-  await app.listen(port, '0.0.0.0');
-  console.log(`Application is running on 0.0.0.0:${port} with global prefix /hermes`);
+  // Hermes is a pure SQS message processor - no HTTP server needed
+  console.log('Hermes SQS message processor started');
+  console.log('Processing messages from:', process.env.SQS_QUEUE_URL || 'webordinary-email-queue');
   
   if (process.env.NODE_ENV === 'development') {
     console.log(`Development mode: Using AWS profile '${process.env.AWS_PROFILE}'`);
   }
+  
+  // Keep the process running
+  // The SQS consumers will process messages in the background
 }
 bootstrap();

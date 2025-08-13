@@ -1,8 +1,32 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EmailProcessorService } from './email-processor.service';
 import { SqsExecutorService } from '../claude-executor/sqs-executor.service';
-import { EditSessionService } from '../edit-session/services/edit-session.service';
 import { MessageRouterService } from '../message-processor/message-router.service';
+
+// Mock AWS SDK
+jest.mock('aws-sdk', () => ({
+  SES: jest.fn(() => ({
+    sendEmail: jest.fn().mockReturnValue({
+      promise: jest.fn().mockResolvedValue({ MessageId: 'test-message-id' })
+    }),
+    sendRawEmail: jest.fn().mockReturnValue({
+      promise: jest.fn().mockResolvedValue({ MessageId: 'test-message-id' })
+    })
+  })),
+  SQS: jest.fn(() => ({
+    sendMessage: jest.fn().mockReturnValue({
+      promise: jest.fn().mockResolvedValue({ MessageId: 'test-message-id' })
+    })
+  })),
+  DynamoDB: jest.fn(() => ({
+    getItem: jest.fn().mockReturnValue({
+      promise: jest.fn().mockResolvedValue({ Item: null })
+    }),
+    putItem: jest.fn().mockReturnValue({
+      promise: jest.fn().mockResolvedValue({})
+    })
+  }))
+}));
 
 // Mock email-reply-parser
 jest.mock('email-reply-parser', () => {
@@ -33,10 +57,18 @@ jest.mock('mailparser', () => ({
   }),
 }));
 
+// Mock mjml
+jest.mock('mjml', () => ({
+  __esModule: true,
+  default: jest.fn(() => ({
+    html: '<html><body>Mocked HTML</body></html>',
+    errors: []
+  }))
+}));
+
 describe('EmailProcessorService', () => {
   let service: EmailProcessorService;
   let sqsExecutor: SqsExecutorService;
-  let sessionService: EditSessionService;
   let messageRouter: MessageRouterService;
 
   beforeEach(async () => {
@@ -61,20 +93,13 @@ describe('EmailProcessorService', () => {
               projectId: 'ameliastamps',
               userId: 'scott',
             }),
-          },
-        },
-        {
-          provide: EditSessionService,
-          useValue: {
-            getActiveSessions: jest.fn().mockResolvedValue([]),
-            createSession: jest.fn().mockResolvedValue({
-              sessionId: 'test-session-id',
-              clientId: 'test-client',
-              userId: 'test-user',
-              threadId: 'test-thread',
-              status: 'active',
+            routeMessage: jest.fn().mockResolvedValue({
+              projectId: 'ameliastamps',
+              userId: 'scott',
+              inputQueueUrl: 'https://sqs.us-west-2.amazonaws.com/123/input',
+              outputQueueUrl: 'https://sqs.us-west-2.amazonaws.com/123/output',
+              needsUnclaimed: false,
             }),
-            updateSessionActivity: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],
@@ -82,7 +107,6 @@ describe('EmailProcessorService', () => {
 
     service = module.get<EmailProcessorService>(EmailProcessorService);
     sqsExecutor = module.get<SqsExecutorService>(SqsExecutorService);
-    sessionService = module.get<EditSessionService>(EditSessionService);
     messageRouter = module.get<MessageRouterService>(MessageRouterService);
   });
 
@@ -102,7 +126,10 @@ describe('EmailProcessorService', () => {
     // Mock AWS SDK
     (service as any).ses = {
       sendEmail: jest.fn().mockReturnValue({
-        promise: jest.fn().mockResolvedValue({}),
+        promise: jest.fn().mockResolvedValue({ MessageId: 'test-message-id' }),
+      }),
+      sendRawEmail: jest.fn().mockReturnValue({
+        promise: jest.fn().mockResolvedValue({ MessageId: 'test-raw-message-id' }),
       }),
     };
     (service as any).sqs = {
@@ -114,9 +141,9 @@ describe('EmailProcessorService', () => {
     await service.processEmail(mockRecord as any);
 
     expect(messageRouter.identifyProjectUser).toHaveBeenCalled();
-    expect(sessionService.createSession).toHaveBeenCalled();
-    expect(sessionService.updateSessionActivity).toHaveBeenCalled();
-    expect(sqsExecutor.executeInstruction).toHaveBeenCalled();
+    expect(messageRouter.routeMessage).toHaveBeenCalled();
+    // EmailProcessorService routes messages, doesn't execute instructions
+    expect((service as any).ses.sendRawEmail).toHaveBeenCalled();
   });
 
   it('should extract instruction from email', () => {

@@ -1,10 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BedrockModule } from './modules/bedrock/bedrock.module';
-// EditSessionModule removed - legacy session-per-container pattern
-// import { EditSessionModule } from './modules/edit-session/edit-session.module';
 import { EmailProcessorModule } from './modules/email-processor/email-processor.module';
 import GlobalConfiguration from './core/config/global.configuration';
 import PromptsConfiguration from './core/config/prompts.configuration';
@@ -27,19 +24,19 @@ config();
     SqsModule.registerAsync({
       useFactory(configService: ConfigService) {
         const config = configService.get('aws');
-        
+
         // In development, use AWS profile from environment
         const sqsOptions: any = {
           region: config.sqsRegion,
         };
-        
+
         // For local development, we need to ensure credentials are loaded
         if (process.env.NODE_ENV === 'development' && process.env.AWS_PROFILE) {
           // The nestjs-sqs module uses AWS SDK v2, which should pick up
           // credentials from the environment automatically
           console.log(`SQS Module: Using AWS profile '${process.env.AWS_PROFILE}' for development`);
         }
-        
+
         return {
           consumers: [
             {
@@ -67,7 +64,7 @@ config();
       imports: [ConfigModule],
     }),
   ],
-  controllers: [AppController],
+  controllers: [], // No HTTP controllers - pure SQS message processor
   providers: [AppService],
 })
 export class AppModule { }

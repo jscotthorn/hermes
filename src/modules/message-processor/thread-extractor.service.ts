@@ -8,7 +8,6 @@ import {
   QueryCommand,
   UpdateItemCommand,
 } from '@aws-sdk/client-dynamodb';
-import { EditSessionService } from '../edit-session/services/edit-session.service';
 
 export interface ThreadMapping {
   messageId: string;      // PK (source-specific ID)
@@ -67,9 +66,7 @@ export class ThreadExtractorService {
   private readonly dynamodb: DynamoDBClient;
   private readonly tableName: string;
 
-  constructor(
-    private readonly editSessionService: EditSessionService,
-  ) {
+  constructor() {
     this.dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
     this.tableName = process.env.THREAD_MAPPING_TABLE || 'webordinary-thread-mappings';
   }
@@ -232,13 +229,7 @@ export class ThreadExtractorService {
         ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60), // 30 days
       });
 
-      // Create new session
-      const session = await this.editSessionService.createSession(
-        clientId,
-        userId,
-        `Session for ${source} thread ${chatThreadId}`,
-      );
-
+      // Return new session info directly
       return {
         sessionId,
         clientId,

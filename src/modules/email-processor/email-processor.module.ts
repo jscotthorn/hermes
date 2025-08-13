@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { EmailProcessorService } from './email-processor.service';
-import { EmailProcessorController } from './email-processor.controller';
 import { MessageProcessorModule } from '../message-processor/message-processor.module';
 
 @Module({
@@ -10,7 +9,7 @@ import { MessageProcessorModule } from '../message-processor/message-processor.m
     MessageProcessorModule,  // For MessageRouterService
   ],
   providers: [EmailProcessorService],
-  controllers: [EmailProcessorController],
+  controllers: [], // No HTTP controllers - pure SQS message processor
   exports: [EmailProcessorService],
 })
 export class EmailProcessorModule {}
