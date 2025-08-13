@@ -3,7 +3,8 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BedrockModule } from './modules/bedrock/bedrock.module';
-import { EditSessionModule } from './modules/edit-session/edit-session.module';
+// EditSessionModule removed - legacy session-per-container pattern
+// import { EditSessionModule } from './modules/edit-session/edit-session.module';
 import { EmailProcessorModule } from './modules/email-processor/email-processor.module';
 import GlobalConfiguration from './core/config/global.configuration';
 import PromptsConfiguration from './core/config/prompts.configuration';
@@ -16,7 +17,7 @@ config();
 @Module({
   imports: [
     EmailProcessorModule,
-    EditSessionModule,
+    // EditSessionModule, // Removed - using project+user pattern now
     MonitoringModule,
     ConfigModule.forRoot({
       isGlobal: true,

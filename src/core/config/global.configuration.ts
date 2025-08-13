@@ -17,7 +17,7 @@ export default () => ({
     workingDirectory: process.env.WORKSPACE_PATH || '/workspace/amelia-astro',
     maxRetries: parseInt(process.env.MAX_RETRIES || '3'),
     timeout: parseInt(process.env.EXECUTION_TIMEOUT || '30000'),
-    containerUrl: process.env.CLAUDE_CODE_CONTAINER_URL || 'http://localhost:8080',
+    // Container URL removed - containers now communicate via SQS only
   },
   featureFlags: {
     useClaudeCode: process.env.USE_CLAUDE_CODE === 'true',

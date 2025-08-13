@@ -179,10 +179,56 @@ export class MessageRouterService {
   }
 
   /**
+   * Validates message structure before sending to queue
+   */
+  private validateMessage(message: any): void {
+    // Check for required base fields
+    if (!message.sessionId) {
+      throw new Error('Message validation failed: sessionId is required');
+    }
+    if (!message.projectId) {
+      throw new Error('Message validation failed: projectId is required');
+    }
+    if (!message.userId) {
+      throw new Error('Message validation failed: userId is required');
+    }
+    if (!message.timestamp) {
+      throw new Error('Message validation failed: timestamp is required');
+    }
+    
+    // Check for unknown fields that indicate test/malformed messages
+    if ('unknown' in message) {
+      throw new Error('Message validation failed: contains unknown field (likely test message)');
+    }
+    
+    // Validate specific message types
+    if (message.type === 'work') {
+      if (!message.instruction) {
+        throw new Error('Message validation failed: work message requires instruction');
+      }
+      if (!message.repoUrl) {
+        throw new Error('Message validation failed: work message requires repoUrl');
+      }
+    }
+    
+    if (message.type === 'response') {
+      if (!message.commandId) {
+        throw new Error('Message validation failed: response message requires commandId');
+      }
+      if (typeof message.success !== 'boolean') {
+        throw new Error('Message validation failed: response message requires success boolean');
+      }
+    }
+  }
+
+  /**
    * Sends message to specific queue
    */
   private async sendToQueue(queueUrl: string, message: any): Promise<void> {
     try {
+      // Validate message before sending
+      this.validateMessage(message);
+      
       await this.sqs.send(new SendMessageCommand({
         QueueUrl: queueUrl,
         MessageBody: JSON.stringify(message),
