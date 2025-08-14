@@ -5,7 +5,6 @@ import { ThreadExtractorService } from '../message-processor/thread-extractor.se
 import { QueueManagerService } from '../sqs/queue-manager.service';
 import { SqsMessageService } from '../sqs/sqs-message.service';
 import { ContainerManagerService } from '../container/container-manager.service';
-import { EditSessionService } from '../edit-session/services/edit-session.service';
 
 @Module({
   providers: [
@@ -15,7 +14,6 @@ import { EditSessionService } from '../edit-session/services/edit-session.servic
     QueueManagerService,
     SqsMessageService,
     ContainerManagerService,
-    EditSessionService,
   ],
   exports: [
     EmailProcessorService,

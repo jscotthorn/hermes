@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SQSEvent } from 'aws-lambda';
 import { SES, SQS, DynamoDB } from 'aws-sdk';
 import * as simpleParser from 'mailparser';
-import * as EmailReplyParser from 'email-reply-parser';
+const EmailReplyParser = require('email-reply-parser');
 import mjml2html from 'mjml';
 import { MessageRouterService } from '../message-processor/message-router.service';
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs';
@@ -214,7 +214,8 @@ export class EmailProcessorService {
   private extractInstruction(email: any): string {
     try {
       // Use email-reply-parser to get just the new content
-      const replyText = EmailReplyParser.parse(
+      const parser = new EmailReplyParser();
+      const replyText = parser.read(
         email.textBody || email.htmlBody || '',
       );
       
