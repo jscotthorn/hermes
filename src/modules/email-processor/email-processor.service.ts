@@ -3,7 +3,7 @@ import { SQSEvent } from 'aws-lambda';
 import { SES, SQS, DynamoDB } from 'aws-sdk';
 import * as simpleParser from 'mailparser';
 const EmailReplyParser = require('email-reply-parser');
-import mjml2html from 'mjml';
+const mjml2html = require('mjml');
 import { MessageRouterService } from '../message-processor/message-router.service';
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs';
 
@@ -160,8 +160,21 @@ export class EmailProcessorService {
     
     const parsed = await simpleParser.simpleParser(rawEmail);
     
+    // Extract just the email address from the from field
+    // parsed.from?.text might be "Name <email@domain.com>"
+    let fromEmail = parsed.from?.text || '';
+    const emailMatch = fromEmail.match(/<([^>]+)>/);
+    if (emailMatch) {
+      fromEmail = emailMatch[1];
+    } else if (fromEmail.includes(' ')) {
+      // If there's a space but no angle brackets, take the last part
+      fromEmail = fromEmail.split(' ').pop() || fromEmail;
+    }
+    
+    this.logger.debug(`Extracted from email: ${fromEmail} (original: ${parsed.from?.text})`);
+    
     return {
-      from: parsed.from?.text || '',
+      from: fromEmail,
       to: parsed.to?.text || '',
       subject: parsed.subject || '',
       textBody: parsed.text || '',

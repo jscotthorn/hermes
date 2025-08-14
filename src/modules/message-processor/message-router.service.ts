@@ -41,21 +41,18 @@ export class MessageRouterService {
   // TODO: Move to DynamoDB for dynamic configuration
   private readonly projectConfigs: Map<string, ProjectConfig> = new Map([
     ['escottster@gmail.com', {
-      projectId: 'amelia',        // Project identifier (matches S3: edit.amelia.webordinary.com)
+      projectId: 'ameliastamps',  // Project identifier (matches queue: webordinary-input-ameliastamps-scott)
       userId: 'scott',            // User within project
       email: 'escottster@gmail.com',
-      repoUrl: 'https://github.com/ameliastamps/amelia-astro.git',
+      repoUrl: 'https://github.com/jscotthorn/amelia-astro.git',
       defaultInstruction: 'Help with Amelia Stamps website'
     }],
   ]);
 
-  constructor(
-    sqsClient?: SQSClient,
-    dynamoClient?: DynamoDBClient
-  ) {
-    // Allow injection for testing, but create defaults for production
-    this.sqs = sqsClient || new SQSClient({ region: process.env.AWS_REGION || 'us-west-2' });
-    this.dynamodb = dynamoClient || new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
+  constructor() {
+    // Initialize AWS SDK clients
+    this.sqs = new SQSClient({ region: process.env.AWS_REGION || 'us-west-2' });
+    this.dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
     this.accountId = process.env.AWS_ACCOUNT_ID || '942734823970';
     this.region = process.env.AWS_REGION || 'us-west-2';
   }
@@ -106,6 +103,7 @@ export class MessageRouterService {
     
     // Priority 3: Look up by email
     const email = this.extractEmail(message);
+    this.logger.debug(`Extracted email for project lookup: ${email}`);
     if (email) {
       const config = this.projectConfigs.get(email.toLowerCase());
       if (config) {
@@ -115,6 +113,9 @@ export class MessageRouterService {
           userId: config.userId,
           repoUrl: config.repoUrl,
         };
+      } else {
+        this.logger.debug(`No config found for email: ${email}`);
+        this.logger.debug(`Available configs: ${Array.from(this.projectConfigs.keys()).join(', ')}`);
       }
     }
     
@@ -134,7 +135,18 @@ export class MessageRouterService {
    * 2. Unclaimed queue (for warm containers to claim work)
    */
   async routeMessage(message: any): Promise<RoutingDecision> {
-    const { projectId, userId, repoUrl } = await this.identifyProjectUser(message);
+    // If projectId and userId are already provided, use them directly
+    let projectId = message.projectId;
+    let userId = message.userId;
+    let repoUrl = message.repoUrl;
+    
+    // Otherwise, identify them
+    if (!projectId || !userId) {
+      const identified = await this.identifyProjectUser(message);
+      projectId = identified.projectId;
+      userId = identified.userId;
+      repoUrl = identified.repoUrl;
+    }
     
     this.logger.log(`Routing message for project+user: ${projectId}+${userId}`);
     

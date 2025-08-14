@@ -13,8 +13,8 @@ RUN npm ci && npm cache clean --force
 # Copy source code
 COPY src/ ./src/
 
-# Build the application
-RUN npm run build
+# Build the application (with cache bust for debugging)
+RUN echo "Build timestamp: $(date)" && npm run build
 
 # Production stage
 FROM node:20-alpine AS production
@@ -27,11 +27,14 @@ RUN apk add --no-cache curl
 # Copy package files
 COPY package*.json ./
 
-# Install only production dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Install ALL dependencies for debugging (temporary)
+RUN npm ci && npm cache clean --force
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
+# Also copy source for debugging
+COPY src/ ./src/
+COPY tsconfig*.json ./
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs
