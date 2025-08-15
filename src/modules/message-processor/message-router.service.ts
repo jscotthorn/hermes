@@ -41,7 +41,7 @@ export class MessageRouterService {
   // TODO: Move to DynamoDB for dynamic configuration
   private readonly projectConfigs: Map<string, ProjectConfig> = new Map([
     ['escottster@gmail.com', {
-      projectId: 'ameliastamps',  // Project identifier (matches queue: webordinary-input-ameliastamps-scott)
+      projectId: 'amelia',  // Project identifier (matches queue: webordinary-input-amelia-scott)
       userId: 'scott',            // User within project
       email: 'escottster@gmail.com',
       repoUrl: 'https://github.com/jscotthorn/amelia-astro.git',

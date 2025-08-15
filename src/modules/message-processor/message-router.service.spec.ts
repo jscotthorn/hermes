@@ -17,7 +17,7 @@ describe('MessageRouterService', () => {
     mockSqsClient = {
       send: jest.fn(),
     } as any;
-    
+
     mockDynamoClient = {
       send: jest.fn(),
     } as any;
@@ -74,7 +74,7 @@ describe('MessageRouterService', () => {
         threadId: 'thread-123',
         userEmail: 'test@example.com',
       });
-      
+
       // Check mock was called
       expect(mockDynamoClient.send).toHaveBeenCalledTimes(1);
 
@@ -135,7 +135,7 @@ describe('MessageRouterService', () => {
         from: 'escottster@gmail.com',
         userEmail: 'escottster@gmail.com',
         type: 'work',
-        repoUrl: 'https://github.com/ameliastamps/amelia-astro.git',
+        repoUrl: 'https://github.com/jscotthorn/amelia-astro.git',
         timestamp: Date.now(),
       };
 
@@ -143,7 +143,7 @@ describe('MessageRouterService', () => {
 
       // Debug: Check how many DB calls were made
       expect(mockDynamoClient.send).toHaveBeenCalledTimes(2);
-      
+
       expect(result.projectId).toBe('amelia');
       expect(result.userId).toBe('scott');
       expect(result.needsUnclaimed).toBe(false);
@@ -170,7 +170,7 @@ describe('MessageRouterService', () => {
         from: 'escottster@gmail.com',
         userEmail: 'escottster@gmail.com',
         type: 'work',
-        repoUrl: 'https://github.com/ameliastamps/amelia-astro.git',
+        repoUrl: 'https://github.com/jscotthorn/amelia-astro.git',
         timestamp: Date.now(),
       };
 
@@ -203,7 +203,7 @@ describe('MessageRouterService', () => {
         userEmail: 'escottster@gmail.com',
         threadId: 'thread-456',
         type: 'work',
-        repoUrl: 'https://github.com/ameliastamps/amelia-astro.git',
+        repoUrl: 'https://github.com/jscotthorn/amelia-astro.git',
         timestamp: Date.now(),
       };
 
@@ -212,13 +212,13 @@ describe('MessageRouterService', () => {
       // Verify work message was sent with all required fields
       expect(mockSqsClient.send).toHaveBeenCalled();
       const sentCall = (mockSqsClient.send as jest.Mock).mock.calls[0];
-      
+
       // In AWS SDK v3, the command object is the first argument
       const command = sentCall[0];
       // The command has an input property with the parameters
       if (command && command.input && command.input.MessageBody) {
         const sentMessage = JSON.parse(command.input.MessageBody);
-        
+
         expect(sentMessage.type).toBe('work');
         expect(sentMessage.projectId).toBe('amelia');
         expect(sentMessage.userId).toBe('scott');
@@ -255,7 +255,7 @@ describe('MessageRouterService', () => {
         from: 'escottster@gmail.com',
         userEmail: 'escottster@gmail.com',
         type: 'work',
-        repoUrl: 'https://github.com/ameliastamps/amelia-astro.git',
+        repoUrl: 'https://github.com/jscotthorn/amelia-astro.git',
         timestamp: Date.now(),
       };
 
@@ -278,7 +278,7 @@ describe('MessageRouterService', () => {
         from: 'escottster@gmail.com',
         userEmail: 'escottster@gmail.com',
         type: 'work',
-        repoUrl: 'https://github.com/ameliastamps/amelia-astro.git',
+        repoUrl: 'https://github.com/jscotthorn/amelia-astro.git',
         timestamp: Date.now(),
       };
 
@@ -307,7 +307,7 @@ describe('MessageRouterService', () => {
         from: 'escottster@gmail.com',
         userEmail: 'escottster@gmail.com',
         type: 'work',
-        repoUrl: 'https://github.com/ameliastamps/amelia-astro.git',
+        repoUrl: 'https://github.com/jscotthorn/amelia-astro.git',
         timestamp: Date.now(),
       };
 

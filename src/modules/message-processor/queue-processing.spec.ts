@@ -21,7 +21,7 @@ describe('Queue Processing (S3 Architecture)', () => {
     mockSqsClient = {
       send: jest.fn(),
     } as any;
-    
+
     mockDynamoClient = {
       send: jest.fn(),
     } as any;
@@ -59,7 +59,7 @@ describe('Queue Processing (S3 Architecture)', () => {
         instruction: 'Update homepage',
         projectId: 'amelia', // Note: 'amelia' not 'ameliastamps'
         userId: 'scott',
-        repoUrl: 'https://github.com/ameliastamps/amelia-astro.git',
+        repoUrl: 'https://github.com/jscotthorn/amelia-astro.git',
         type: 'work',
       });
 
@@ -98,7 +98,7 @@ describe('Queue Processing (S3 Architecture)', () => {
 
       // Verify messages were sent
       expect(mockSqsClient.send).toHaveBeenCalled();
-      
+
       // Test verifies S3 architecture message format (no HTTP fields)
     });
   });
@@ -137,7 +137,7 @@ describe('Queue Processing (S3 Architecture)', () => {
       expect(inputQueueUrl).toBe(
         `https://sqs.${region}.amazonaws.com/${accountId}/webordinary-input-test-project-user-example-com`
       );
-      
+
       // Check that special characters are removed from the queue name part
       const queueName = inputQueueUrl.split('/').pop();
       expect(queueName).toBe('webordinary-input-test-project-user-example-com');
@@ -165,7 +165,7 @@ describe('Queue Processing (S3 Architecture)', () => {
         instruction: 'Update homepage',
         projectId: 'amelia',
         userId: 'scott',
-        repoUrl: 'https://github.com/ameliastamps/amelia-astro.git',
+        repoUrl: 'https://github.com/jscotthorn/amelia-astro.git',
         type: 'work',
       });
 
@@ -190,7 +190,7 @@ describe('Queue Processing (S3 Architecture)', () => {
           instruction: 'Update homepage',
           projectId: 'amelia',
           userId: 'scott',
-          repoUrl: 'https://github.com/ameliastamps/amelia-astro.git',
+          repoUrl: 'https://github.com/jscotthorn/amelia-astro.git',
           type: 'work',
         })
       ).rejects.toThrow('SQS unavailable');
