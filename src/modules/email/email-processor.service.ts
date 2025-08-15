@@ -3,7 +3,6 @@ import { ParsedMail } from 'mailparser';
 import { ThreadExtractorService } from '../message-processor/thread-extractor.service';
 import { QueueManagerService } from '../sqs/queue-manager.service';
 import { SqsMessageService } from '../sqs/sqs-message.service';
-import { ContainerManagerService } from '../container/container-manager.service';
 import { SESClient, SendEmailCommand, SendRawEmailCommand } from '@aws-sdk/client-ses';
 import { EmailTemplateService } from './email-templates.service';
 
@@ -32,7 +31,6 @@ export class EmailProcessorService {
     private readonly threadExtractor: ThreadExtractorService,
     private readonly queueManager: QueueManagerService,
     private readonly messageService: SqsMessageService,
-    private readonly containerManager: ContainerManagerService,
     private readonly emailTemplateService: EmailTemplateService,
   ) {
     this.ses = new SESClient({ region: process.env.AWS_REGION || 'us-west-2' });
@@ -47,7 +45,7 @@ export class EmailProcessorService {
     try {
       // Extract identifiers from email
       const processedEmail = this.extractEmailData(email);
-      
+
       // Extract thread ID from email headers
       const chatThreadId = this.threadExtractor.extractThreadId({
         source: 'email',
@@ -77,16 +75,6 @@ export class EmailProcessorService {
         processedEmail.userId,
       );
 
-      // Ensure container is running
-      const containerInfo = await this.containerManager.ensureContainerRunning(
-        processedEmail.clientId,
-        processedEmail.projectId,
-        processedEmail.userId,
-        queues,
-      );
-
-      this.logger.log(`Container ${containerInfo.containerId} is running with queues configured`);
-
       // Send command to container's input queue
       const commandId = await this.messageService.sendEditCommand(
         queues.inputUrl,
@@ -105,7 +93,7 @@ export class EmailProcessorService {
         },
       );
 
-      this.logger.log(`Sent command ${commandId} to container ${containerInfo.containerId}`);
+      this.logger.log(`Sent command ${commandId} to session ${session.sessionId} on branch ${session.gitBranch}`);
 
       // Wait for response from output queue
       try {
@@ -117,7 +105,7 @@ export class EmailProcessorService {
 
         if (response) {
           this.logger.log(`Received response for command ${commandId}: ${response.success ? 'success' : 'failed'}`);
-          
+
           // Send response email
           await this.sendResponseEmail(
             processedEmail.from,
@@ -141,7 +129,7 @@ export class EmailProcessorService {
       }
     } catch (error) {
       this.logger.error(`Failed to process email:`, error);
-      
+
       // Send error email to user
       await this.sendErrorEmail(
         email.from?.text || 'unknown',
@@ -160,10 +148,10 @@ export class EmailProcessorService {
     // Example: edit@ameliastamps-website.webordinary.com
     const toAddress = email.to?.text || email.to?.value?.[0]?.address || '';
     const match = toAddress.match(/edit@([^-]+)-([^.]+)\.webordinary\.com/);
-    
+
     let clientId = 'default';
     let projectId = 'project';
-    
+
     if (match) {
       clientId = match[1];
       projectId = match[2];
@@ -211,22 +199,22 @@ export class EmailProcessorService {
     response: any,
   ): Promise<void> {
     const subject = `Re: ${originalSubject}`;
-    
+
     // Build content for template
     let content = `Your edit request has been ${response.success ? 'completed successfully' : 'processed with errors'}.`;
-    
+
     if (response.summary) {
       content += `\n\n${response.summary}`;
     }
-    
+
     if (response.interrupted) {
       content += `\n\nNote: This task was interrupted by a newer request.`;
     }
-    
+
     // Extract thread ID from sessionId or generate new one
     const threadMatch = response.sessionId?.match(/([a-zA-Z0-9]+-[a-zA-Z0-9]+)$/);
     const threadId = threadMatch ? threadMatch[1] : response.sessionId || this.generateNewThreadId();
-    
+
     // Create MJML template
     const mjmlTemplate = this.emailTemplateService.createResponseTemplate({
       content,
@@ -237,10 +225,10 @@ export class EmailProcessorService {
       error: response.error,
       isError: !response.success,
     });
-    
+
     // Render to HTML and text
     const { html, text } = this.emailTemplateService.renderMjml(mjmlTemplate);
-    
+
     // Build MIME message for proper threading
     const mimeMessage = this.emailTemplateService.buildMimeMessage({
       from: 'WebOrdinary <noreply@webordinary.com>',
@@ -262,13 +250,13 @@ export class EmailProcessorService {
           Source: 'noreply@webordinary.com',
         }),
       );
-      
+
       this.logger.log(`Sent response email to ${to}`);
     } catch (error) {
       this.logger.error(`Failed to send response email:`, error);
     }
   }
-  
+
   /**
    * Generate a new thread ID
    */
@@ -319,7 +307,7 @@ Webordinary Edit Service`;
           ReplyToAddresses: ['support@webordinary.com'],
         }),
       );
-      
+
       this.logger.log(`Sent timeout notification to ${to}`);
     } catch (error) {
       this.logger.error(`Failed to send timeout email:`, error);
@@ -365,7 +353,7 @@ Webordinary Edit Service`;
           ReplyToAddresses: ['support@webordinary.com'],
         }),
       );
-      
+
       this.logger.log(`Sent error notification to ${to}`);
     } catch (error) {
       this.logger.error(`Failed to send error email:`, error);
