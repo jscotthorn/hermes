@@ -6,27 +6,27 @@ Central message router and orchestrator for the WebOrdinary platform, managing e
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Hermes Workflow                          │
+│                     Hermes Workflow                         │
 ├─────────────────────────────────────────────────────────────┤
-│                                                               │
+│                                                             │
 │  Email → SES → SQS Email Queue                              │
-│                    ↓                                          │
-│              Hermes Service                                  │
-│                    ↓                                          │
-│          Parse Email Structure                               │
-│                    ↓                                          │
-│         Extract/Create Thread ID                             │
-│                    ↓                                          │
-│        Identify Project + User                               │
-│                    ↓                                          │
-│    Check Container Ownership (DynamoDB)                      │
-│                    ↓                                          │
-│         Route to Queues:                                     │
+│                    ↓                                        │
+│              Hermes Service                                 │
+│                    ↓                                        │
+│          Parse Email Structure                              │
+│                    ↓                                        │
+│         Extract/Create Thread ID                            │
+│                    ↓                                        │
+│        Identify Project + User                              │
+│                    ↓                                        │
+│    Check Container Ownership (DynamoDB)                     │
+│                    ↓                                        │
+│         Route to Queues:                                    │
 │    ┌───────────────┴───────────────┐                        │
-│    ↓                               ↓                         │
+│    ↓                               ↓                        │
 │  Project+User Queue          Unclaimed Queue                │
-│  (Has active claim)          (No active claim)              │
-│                                                               │
+│  (All States)                (No active claim)              │
+│                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
